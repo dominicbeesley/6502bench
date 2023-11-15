@@ -149,8 +149,12 @@ namespace SourceGen.Res {
             (string)Application.Current.FindResource("str_ErrValueIncompatibleWithMask");
         public static string EXPORTING_HTML =
             (string)Application.Current.FindResource("str_ExportingHtml");
+        public static string EXPORTING_XML =
+            (string)Application.Current.FindResource("str_ExportingXml");
         public static string EXPORTING_HTML_AND_IMAGES =
             (string)Application.Current.FindResource("str_ExportingHtmlAndImages");
+        public static string EXPORTING_XML_AND_IMAGES =
+            (string)Application.Current.FindResource("str_ExportingXmlAndImages");
         public static string EXTERNAL_FILE_BAD_DIR_FMT =
             (string)Application.Current.FindResource("str_ExternalFileBadDirFmt");
         public static string EXTERNAL_FILE_BAD_DIR_CAPTION =
@@ -167,6 +171,8 @@ namespace SourceGen.Res {
             (string)Application.Current.FindResource("str_FileFilterGif");
         public static string FILE_FILTER_HTML =
             (string)Application.Current.FindResource("str_FileFilterHtml");
+        public static string FILE_FILTER_XML =
+            (string)Application.Current.FindResource("str_FileFilterXml");
         public static string FILE_FILTER_SGEC =
             (string)Application.Current.FindResource("str_FileFilterSgec");
         public static string FILE_FILTER_SYM65 =

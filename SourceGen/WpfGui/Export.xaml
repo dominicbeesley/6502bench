@@ -113,6 +113,10 @@ limitations under the License.
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
             <Button Grid.Column="0" Content="Generate HTML" Width="100"
                     IsEnabled="{Binding IsValid}" Click="GenerateHtmlButton_Click"/>
@@ -120,6 +124,8 @@ limitations under the License.
                     IsEnabled="{Binding IsValid}" Click="GenerateTextButton_Click"/>
             <Button Grid.Column="2" Content="Cancel" IsCancel="True" Width="70" Margin="8,0,0,0"
                     HorizontalAlignment="Right"/>
+            <Button Grid.Column="0" Grid.Row="1" Content="Generate XML" Width="100" Margin="0,4,0,0"
+                    IsEnabled="{Binding IsValid}" Click="GenerateXmlButton_Click"/>
         </Grid>
     </Grid>
 </Window>

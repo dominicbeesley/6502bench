@@ -35,7 +35,8 @@ namespace SourceGen.WpfGui {
         public enum GenerateFileType {
             Unknown = 0,
             Text,
-            Html
+            Html,
+            Xml
         }
 
         /// <summary>
@@ -304,6 +305,12 @@ namespace SourceGen.WpfGui {
         private void GenerateHtmlButton_Click(object sender, RoutedEventArgs e) {
             GenType = GenerateFileType.Html;
             Finish(Res.Strings.FILE_FILTER_HTML, ".html");
+        }
+
+        private void GenerateXmlButton_Click(object sender, RoutedEventArgs e)
+        {
+            GenType = GenerateFileType.Xml;
+            Finish(Res.Strings.FILE_FILTER_XML, ".xml");
         }
 
         private void GenerateTextButton_Click(object sender, RoutedEventArgs e) {

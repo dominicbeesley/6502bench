@@ -23,12 +23,13 @@ using Asm65;
 using CommonUtil;
 using FormattedParts = SourceGen.DisplayList.FormattedParts;
 using TextScanMode = SourceGen.ProjectProperties.AnalysisParameters.TextScanMode;
+using System.Collections;
 
 namespace SourceGen {
     /// <summary>
     /// Converts file data and Anattrib contents into a series of strings and format metadata.
     /// </summary>
-    public class LineListGen {
+    public class LineListGen :IEnumerable<LineListGen.Line> {
         /// <summary>
         /// Color multiplier for Notes.  Used for "dark" mode.
         /// </summary>
@@ -530,6 +531,11 @@ namespace SourceGen {
         /// <returns>Object with formatted strings.</returns>
         public FormattedParts GetFormattedParts(int index) {
             Line line = mLineList[index];
+            return GetFormattedParts(line);
+        }
+
+        public FormattedParts GetFormattedParts(LineListGen.Line line)
+        {
             if (line.Parts == null) {
                 FormattedParts parts;
                 switch (line.LineType) {
@@ -1740,6 +1746,16 @@ namespace SourceGen {
             }
 
             return partsArray;
+        }
+
+        IEnumerator<LineListGen.Line> IEnumerable<LineListGen.Line>.GetEnumerator()
+        {
+            return mLineList.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return mLineList.GetEnumerator();
         }
     }
 }
