@@ -1443,9 +1443,10 @@ namespace SourceGen
                 xw.WriteStartElement("lines");
                 int lineIndex = 0;
                 int linesCount = mCodeLineList.Count;
+                var lstLongComment = new List<string>();
                 foreach (var l in mCodeLineList)
                 {
-                    GenerateXmlLine(xw, l);
+                    GenerateXmlLine(xw, l, lstLongComment);
 
                     if (worker.CancellationPending)
                     {
@@ -1459,6 +1460,8 @@ namespace SourceGen
                     }
                     lineIndex++;
                 }
+                if (lstLongComment.Count > 0)
+                    WriteLongComment(xw, lstLongComment);
 
                 xw.WriteEndElement();
             }
@@ -1473,11 +1476,11 @@ namespace SourceGen
         }
 
 
-        static Regex reUncamel = new Regex(@"([a-z])(A-Z)", RegexOptions.Compiled);
+        static Regex reUncamel = new Regex(@"(^|[a-z])([A-Z])", RegexOptions.Compiled);
 
         private string UnCamel(string s)
         {
-            return reUncamel.Replace(s, m => m.Captures[1].Value + "-" + m.Captures[2].Value.ToLower());
+            return reUncamel.Replace(s, m => ((m.Groups[1].Value.Length > 0) ? (m.Groups[1].Value + "-") : "") + m.Groups[2].Value.ToLower());
 
         }
 
@@ -1506,264 +1509,146 @@ namespace SourceGen
             xw.WriteEndElement();
         }
 
-        private void GenerateXmlLine(XmlWriter xw, LineListGen.Line line)
+        void WriteLongComment(XmlWriter xw, IEnumerable<string> lines)
         {
-            xw.WriteStartElement("line");
-            if (!string.IsNullOrEmpty(line.Parts.Addr))
+            xw.WriteStartElement("long-comment");
+            xw.WriteAttributeString("xml", "space", null, "preserve");
+
+            bool first = true;
+            foreach (var l in lines)
             {
-                xw.WriteAttributeString("address", line.Parts.Addr);
-            }
-            if (!string.IsNullOrEmpty(line.Parts.Attr))
-            {
-                xw.WriteAttributeString("address", line.Parts.Attr);
-            }
-            xw.WriteAttributeString("type", line.LineType.ToString());
-
-
-            // Width of "bytes" field, without '+' or trailing space.
-            int bytesWidth = mColStart[(int)Col.Bytes + 1] - mColStart[(int)Col.Bytes] - 2;
-            // Width of "label" field, without trailing space.
-            int maxLabelLen = mColStart[(int)Col.Label + 1] - mColStart[(int)Col.Label] - 1;
-
-            DisplayList.FormattedParts parts = mCodeLineList.GetFormattedParts(line);
-
-            // If needed, create an HTML anchor for the label field.
-            string anchorLabel = null;
-            if ((line.LineType == LineListGen.Line.Type.Code ||
-                        line.LineType == LineListGen.Line.Type.Data ||
-                        line.LineType == LineListGen.Line.Type.EquDirective) &&
-                    !string.IsNullOrEmpty(parts.Label))
-            {
-                xw.WriteStartElement("label");
-
-                if (parts.Label.StartsWith(mFormatter.NonUniqueLabelPrefix))
+                if (first)
                 {
-                    // TODO(someday): handle non-unique labels.  ':' is valid in HTML anchors,
-                    // so we can use that to distinguish them from other labels, but we still
-                    // need to ensure that the label is unique and all references point to the
-                    // correct instance.  We can't get that from the Parts list.
+                    xw.WriteString("\n");
+                    first = false;
                 }
                 else
                 {
+                    xw.WriteStartElement("br");
+                    xw.WriteEndElement();
+                    xw.WriteString("\n");
+                }
+                xw.WriteString(l);
+            }
+            xw.WriteEndElement();
+        }
+
+        private void GenerateXmlLine(XmlWriter xw, LineListGen.Line line, List<string> longComment)
+        {
+            DisplayList.FormattedParts parts = mCodeLineList.GetFormattedParts(line);
+            if (line.LineType == LineListGen.Line.Type.LongComment)
+            {
+                longComment.Add(parts.Comment);
+                return;
+            }
+            else
+            {
+                if (longComment.Count > 0)
+                {
+                    WriteLongComment(xw, longComment);
+                    longComment.Clear();
+                }
+            }
+
+            xw.WriteStartElement("line");
+            xw.WriteAttributeString("type", UnCamel(line.LineType.ToString()));
+            if (line.LineType != LineListGen.Line.Type.Blank && parts != null)
+            {
+
+                if (!string.IsNullOrEmpty(parts.Addr))
+                {
+                    xw.WriteAttributeString("address", line.Parts.Addr);
+                }
+
+
+                if ((line.LineType == LineListGen.Line.Type.Code ||
+                            line.LineType == LineListGen.Line.Type.Data ||
+                            line.LineType == LineListGen.Line.Type.EquDirective) &&
+                        !string.IsNullOrEmpty(parts.Label))
+                {
+                    xw.WriteStartElement("label");
+
+                    Symbol.LabelAnnotation labelAnno;
                     string trimLabel = Symbol.TrimAndValidateLabel(parts.Label,
                         mFormatter.NonUniqueLabelPrefix, out bool isValid, out bool unused1,
-                        out bool unused2, out bool unused3, out Symbol.LabelAnnotation unusedAnno);
-                    xw.WriteAttributeString("id", trimLabel);
+                        out bool unused2, out bool unused3, out labelAnno);
+                    xw.WriteAttributeString("anno", UnCamel(labelAnno.ToString()));
+                    if (parts.Label.StartsWith(mFormatter.NonUniqueLabelPrefix))
+                    {
+                        xw.WriteAttributeString("local-id", parts.Label);
+                    }
+                    else
+                    {
+                        xw.WriteAttributeString("id", trimLabel);
+
+                    }
+
+                    xw.WriteString(parts.Label);
+                    xw.WriteEndElement();
 
                 }
 
-                xw.WriteString(parts.Label);
-                xw.WriteEndElement();
 
                 if (!string.IsNullOrEmpty(parts.Opcode))
                 {
-                    xw.WriteStartElement("opercode");
+                    xw.WriteStartElement("opcode");
                     xw.WriteString(parts.Opcode);
                     xw.WriteEndElement();
                 }
 
+
+                Symbol operSym = null;
+                if (line.LineType == LineListGen.Line.Type.Code || line.LineType == LineListGen.Line.Type.Data)
+                {
+                    var attr = mProject.GetAnattrib(line.FileOffset);
+                    if (attr.DataDescriptor != null && attr.DataDescriptor.HasSymbol)
+                    {
+                        if (!mProject.SymbolTable.TryGetNonVariableValue(attr.DataDescriptor.SymbolRef.Label, out operSym))
+                            operSym = null;
+                    }
+                }
                 if (!string.IsNullOrEmpty(parts.Operand))
                 {
+                    var s = parts.Operand;
                     xw.WriteStartElement("operand");
-                    xw.WriteString(parts.Operand);
+                    if (operSym != null)
+                    {
+                        int ix = s.IndexOf(operSym.Label);
+                        string before, after;
+                        if (ix >= 0)
+                        {
+                            before = s.Substring(0, ix);
+                            after = s.Substring(ix + operSym.Label.Length);
+                        }
+                        else
+                        {
+                            before = s;
+                            after = "";
+                        }
+                        xw.WriteString(before);
+                        xw.WriteStartElement("symbol");
+                        xw.WriteAttributeString("anno", UnCamel(operSym.LabelAnno.ToString()));
+                        xw.WriteAttributeString("value", operSym.Value.ToString("X"));
+                        xw.WriteString(operSym.Label);
+                        xw.WriteEndElement();
+                        xw.WriteString(after);
+                    }
+                    else
+                    {
+                        xw.WriteString(s);
+                    }
                     xw.WriteEndElement();
                 }
+
             }
-            /*
-                        // If needed, create an HTML link for the operand field.
-                        string linkOperand = null;
-                        if ((line.LineType == LineListGen.Line.Type.Code ||
-                                    line.LineType == LineListGen.Line.Type.Data) &&
-                                parts.Operand.Length > 0)
-                        {
-                            linkOperand = GetLinkOperand(index, parts.Operand);
-                        }
-
-                        // Put long labels on their own line if desired.
-                        bool suppressLabel = false;
-                        if (LongLabelNewLine && (line.LineType == LineListGen.Line.Type.Code ||
-                                line.LineType == LineListGen.Line.Type.Data))
-                        {
-                            int labelLen = parts.Label.Length;
-                            if (labelLen > maxLabelLen)
-                            {
-                                // put on its own line
-                                string lstr;
-                                if (anchorLabel != null)
-                                {
-                                    lstr = anchorLabel;
-                                }
-                                else
-                                {
-                                    lstr = parts.Label;
-                                }
-                                AddSpacedString(sb, 0, mColStart[(int)Col.Label], lstr, parts.Label.Length);
-                                tw.WriteLine(sb);
-                                sb.Clear();
-                                suppressLabel = true;
-                            }
-                        }
-
-                        int colPos = 0;
-
-                        switch (line.LineType)
-                        {
-                            case LineListGen.Line.Type.Code:
-                            case LineListGen.Line.Type.Data:
-                            case LineListGen.Line.Type.EquDirective:
-                            case LineListGen.Line.Type.RegWidthDirective:
-                            case LineListGen.Line.Type.DataBankDirective:
-                            case LineListGen.Line.Type.ArStartDirective:
-                            case LineListGen.Line.Type.ArEndDirective:
-                            case LineListGen.Line.Type.LocalVariableTable:
-                                if (parts.IsLongComment)
-                                {
-                                    // This happens for long comments embedded in LV tables, e.g.
-                                    // "clear table".
-                                    AddSpacedString(sb, 0, mColStart[(int)Col.Label],
-                                        TextUtil.EscapeHTML(parts.Comment), parts.Comment.Length);
-                                    break;
-                                }
-
-                                // these columns are optional
-
-                                if ((mLeftFlags & ActiveColumnFlags.Offset) != 0)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Offset],
-                                        parts.Offset, parts.Offset.Length);
-                                }
-                                if ((mLeftFlags & ActiveColumnFlags.Address) != 0)
-                                {
-                                    if (!string.IsNullOrEmpty(parts.Addr))
-                                    {
-                                        string str;
-                                        if (parts.IsNonAddressable)
-                                        {
-                                            str = "<span class=\"greytext\">" + parts.Addr + "</span>";
-                                        }
-                                        else
-                                        {
-                                            str = parts.Addr;
-                                        }
-                                        str += ":";
-                                        colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Address],
-                                            str, parts.Addr.Length + 1);
-                                    }
-                                }
-                                if ((mLeftFlags & ActiveColumnFlags.Bytes) != 0)
-                                {
-                                    // Shorten the "...".
-                                    string bytesStr = parts.Bytes;
-                                    if (bytesStr != null)
-                                    {
-                                        if (bytesStr.Length > bytesWidth)
-                                        {
-                                            bytesStr = bytesStr.Substring(0, bytesWidth) + "+";
-                                        }
-                                        colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Bytes],
-                                            bytesStr, bytesStr.Length);
-                                    }
-                                }
-                                if ((mLeftFlags & ActiveColumnFlags.Flags) != 0)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Flags],
-                                        parts.Flags, parts.Flags.Length);
-                                }
-                                if ((mLeftFlags & ActiveColumnFlags.Attr) != 0)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Attr],
-                                        TextUtil.EscapeHTML(parts.Attr), parts.Attr.Length);
-                                }
-
-                                // remaining columns are mandatory, but may be empty
-
-                                if (suppressLabel)
-                                {
-                                    // label on previous line
-                                }
-                                else if (anchorLabel != null)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Label],
-                                        anchorLabel, parts.Label.Length);
-                                }
-                                else if (parts.Label != null)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Label],
-                                        parts.Label, parts.Label.Length);
-                                }
-
-                                colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Opcode],
-                                        parts.Opcode, parts.Opcode.Length);
-
-                                if (linkOperand != null)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Operand],
-                                        linkOperand, parts.Operand.Length);
-                                }
-                                else
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Operand],
-                                        TextUtil.EscapeHTML(parts.Operand), parts.Operand.Length);
-                                }
-
-                                if (parts.Comment != null)
-                                {
-                                    colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Comment],
-                                        TextUtil.EscapeHTML(parts.Comment), parts.Comment.Length);
-                                }
-                                break;
-                            case LineListGen.Line.Type.LongComment:
-                            case LineListGen.Line.Type.Note:
-                                // Notes have a background color.  Use this to highlight the text.  We
-                                // don't apply it to the padding on the left columns.
-                                int rgb = 0;
-                                if (parts.HasBackgroundColor)
-                                {
-                                    SolidColorBrush b = parts.BackgroundBrush as SolidColorBrush;
-                                    if (b != null)
-                                    {
-                                        rgb = (b.Color.R << 16) | (b.Color.G << 8) | (b.Color.B);
-                                    }
-                                }
-                                string cstr;
-                                if (rgb != 0)
-                                {
-                                    cstr = string.Format("<span style=\"background-color: #{0:x6}\">{1}</span>",
-                                        rgb, TextUtil.EscapeHTML(parts.Comment));
-                                }
-                                else
-                                {
-                                    cstr = TextUtil.EscapeHTML(parts.Comment);
-                                }
-                                colPos = AddSpacedString(sb, colPos, mColStart[(int)Col.Label], cstr,
-                                    parts.Comment.Length);
-                                break;
-                            case LineListGen.Line.Type.VisualizationSet:
-                                if (!GenerateImageFiles)
-                                {
-                                    // generate nothing at all
-                                    return;
-                                }
-                                while (colPos < mColStart[(int)Col.Label])
-                                {
-                                    sb.Append(' ');
-                                    colPos++;
-                                }
-                                OutputVisualizationSet(line.FileOffset, sb);
-                                break;
-                            case LineListGen.Line.Type.Blank:
-                                break;
-                            default:
-                                Debug.Assert(false);
-                                break;
-                        }
-            */
+            if (!string.IsNullOrEmpty(parts.Comment))
+            {
+                xw.WriteElementString("comment", parts.Comment);
+            }
             xw.WriteEndElement();
+
         }
-
-
-
-
-        #endregion
     }
+    #endregion
+
 }

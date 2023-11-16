@@ -254,6 +254,8 @@ namespace CommonUtil {
         /// <param name="cereal">Serialized data.</param>
         /// <returns>Integer array with contents.</returns>
         public static int[] DeserializeIntArray(string cereal) {
+            if (cereal == null)
+                throw new ArgumentNullException(nameof(cereal));
             string[] splitted = cereal.Split(',');
             if (splitted.Length == 0) {
                 throw new Exception("Bad serialized int[]");
