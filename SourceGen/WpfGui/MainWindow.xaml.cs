@@ -573,6 +573,7 @@ namespace SourceGen.WpfGui {
                 AppSettings.Global.GetString(AppSettings.SYMWIN_COL_WIDTHS, null));
         }
         private void RestoreColumnWidths(GridView gv, string str) {
+            if (string.IsNullOrEmpty(str)) return;
             int[] widths = null;
             try {
                 widths = TextUtil.DeserializeIntArray(str);

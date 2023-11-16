@@ -1592,7 +1592,15 @@ namespace SourceGen
                 if (!string.IsNullOrEmpty(parts.Opcode))
                 {
                     xw.WriteStartElement("opcode");
-                    xw.WriteString(parts.Opcode);
+                    if (parts.Opcode.StartsWith("."))
+                    {
+                        xw.WriteAttributeString("type", "directive");
+                        xw.WriteString(parts.Opcode.Substring(1));
+                    }
+                    else
+                    {
+                        xw.WriteString(parts.Opcode);
+                    }
                     xw.WriteEndElement();
                 }
 
