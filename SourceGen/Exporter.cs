@@ -1426,6 +1426,7 @@ namespace SourceGen
 
             using (var xw = XmlWriter.Create(pathName, xws))
             {
+                xw.WriteProcessingInstruction("xml-stylesheet", "type=\"text/xsl\" href=\"dis65.xslt\"");
                 xw.WriteStartElement("dis65");
                 xw.WriteAttributeString("project-name", mProject.DataFileName);
                 xw.WriteAttributeString("app-version", App.ProgramVersion.ToString());
@@ -1622,24 +1623,22 @@ namespace SourceGen
                     if (operSym != null)
                     {
                         int ix = s.IndexOf(operSym.Label);
-                        string before, after;
+                        
                         if (ix >= 0)
                         {
-                            before = s.Substring(0, ix);
-                            after = s.Substring(ix + operSym.Label.Length);
+                            var before = s.Substring(0, ix);
+                            var after = s.Substring(ix + operSym.Label.Length);
+                            xw.WriteString(before);
+                            xw.WriteStartElement("op-symbol");
+                            xw.WriteAttributeString("anno", UnCamel(operSym.LabelAnno.ToString()));
+                            xw.WriteAttributeString("value", operSym.Value.ToString("X"));
+                            xw.WriteAttributeString("symbol", operSym.Label);
+                            xw.WriteString(operSym.Label);
+                            xw.WriteEndElement();
+                            xw.WriteString(after);
                         }
                         else
-                        {
-                            before = s;
-                            after = "";
-                        }
-                        xw.WriteString(before);
-                        xw.WriteStartElement("symbol");
-                        xw.WriteAttributeString("anno", UnCamel(operSym.LabelAnno.ToString()));
-                        xw.WriteAttributeString("value", operSym.Value.ToString("X"));
-                        xw.WriteString(operSym.Label);
-                        xw.WriteEndElement();
-                        xw.WriteString(after);
+                            xw.WriteString(s);
                     }
                     else
                     {
