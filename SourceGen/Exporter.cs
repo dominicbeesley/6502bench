@@ -1633,6 +1633,8 @@ namespace SourceGen
                             xw.WriteAttributeString("anno", UnCamel(operSym.LabelAnno.ToString()));
                             xw.WriteAttributeString("value", operSym.Value.ToString("X"));
                             xw.WriteAttributeString("symbol", operSym.Label);
+                            xw.WriteAttributeString("symbol-type", UnCamel(operSym.SymbolType.ToString()));
+                            xw.WriteAttributeString("symbol-source", UnCamel(operSym.SymbolSource.ToString()));
                             xw.WriteString(operSym.Label);
                             xw.WriteEndElement();
                             xw.WriteString(after);
