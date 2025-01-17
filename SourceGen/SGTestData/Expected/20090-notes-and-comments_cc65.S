@@ -80,10 +80,139 @@ plataddr =       $3000      ;address only in platform file
          lda     #$0d
          lda     #$0e
          lda     #$0f
-         bit     plataddr   ;Pull in plataddr to see the comment on the platform file entry.
-         rts
+         jmp     L1062
 
+         .byte   $ea
 bytes:   .byte   $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f ;Comment at the end of a lengthy bulk hex item might overflow various things, but could be wrapped.
          .byte   $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f
          .byte   $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f
          .byte   $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f
+
+L1062:   bit     plataddr   ;Pull in plataddr to see the comment on the platform file entry.
+;
+;A trivial fancy comment.  Nothing special about it at all.  Go on about your
+;business.
+;
+         lda     #$10
+;Check for surrogate pair splitting. 1/2 should be split:
+;zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzxxxxxxxxxxxxxxxxxxx1
+;2x
+;zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzUnicode_Character_“
+;😊”_(U+1F60A)
+         lda     #$11
+;Test [width].  This line has the default width of 80, so things break way out
+;here.
+;Lines with width=8, width=10, and width=*: 
+;0123456
+;7890123
+;4567890
+;1234567
+;89
+;012345678
+;901234567
+;890123456
+;789
+;012345678901234567890123456789
+         lda     #$12
+;Test [hr] and [hr char='#'].
+;-------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------
+;x
+;###############################################################################
+;y
+         lda     #$13
+
+;Testing [br] blank lines.
+
+
+
+;three above, one below
+
+         lda     #$14
+;-------------------------------------------------------------------------------
+;Full width box, with default char.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; stuff in the box zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz aaaa bbb  ;
+; cccc                                                                         ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Explicit char=';'.                                                          ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;Now with reduced width and char='#'.
+;#########
+;# A     #
+;# much  #
+;# small #
+;# er    #
+;# box.  #
+;#########
+;*******************************************************************************
+;* Width changes are illegal inside[width=20]a box (with char='*').  Word wrap *
+;* at the end.                                                                 *
+;*******************************************************************************
+         lda     #$15
+;Simple URL https://example.com/, fancier URL link text (https://example.com/).
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; In a box https://example.com/.                                               ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;A URL may not have a [box]...[/box] tag inside.
+;Nor may it have an [hr], [br], or [width=2] tag.
+;Line wrapping the contents of a URL link area should work +this is the area
+;inside+ (https://example.com).
+         lda     #$16
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; ALL CAPS FOR EVERYTHING (HTTPS://EXAMPLE.COM/)                               ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;SHORT
+;LINES
+;XXXXXXXXX
+;X BOXED X
+;X-------X
+;X STUFF X
+;XXXXXXXXX
+         lda     #$17
+;Test some folding
+;with [width=20].
+;0123456789012345678
+;9
+;012345678901234567-
+;89
+;0123456789012345678
+;9
+; 123456789012345678
+;9
+;-123456789012345678
+;9
+; -
+;234567890123456789
+         lda     #$18
+         lda     #$19
+         lda     #$1a
+         lda     #$1b
+         lda     #$1c
+         lda     #$1d
+         lda     #$1e
+         lda     #$1f
+         lda     #$20
+         lda     #$21
+         lda     #$22
+         lda     #$23
+         lda     #$24
+         lda     #$25
+         lda     #$26
+         lda     #$27
+         lda     #$28
+         lda     #$29
+         lda     #$2a
+         lda     #$2b
+         lda     #$2c
+         lda     #$2d
+         lda     #$2e
+         lda     #$2f
+         jmp     @L10A8
+
+@L10A8:  rts
+

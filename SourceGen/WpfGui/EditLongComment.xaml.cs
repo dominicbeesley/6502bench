@@ -28,6 +28,12 @@ namespace SourceGen.WpfGui {
     /// Long comment editor.
     /// </summary>
     public partial class EditLongComment : Window, INotifyPropertyChanged {
+        // INotifyPropertyChanged implementation
+        public event PropertyChangedEventHandler PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string propertyName = "") {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
         /// <summary>
         /// Get or set the multi-line comment object.  On exit, will be set to null if
         /// the user wants to delete the comment.
@@ -36,6 +42,22 @@ namespace SourceGen.WpfGui {
 
         private Asm65.Formatter mFormatter;
 
+        /// <summary>
+        /// Checkbox state for fancy-mode toggle.
+        /// </summary>
+        public bool IsFancyEnabled {
+            get { return mIsFancyEnabled; }
+            set {
+                mIsFancyEnabled = value;
+                OnPropertyChanged();
+                FormatInput();
+            }
+        }
+        private bool mIsFancyEnabled;
+
+        /// <summary>
+        /// Checkbox state for basic-mode boxing.
+        /// </summary>
         public bool RenderInBox {
             get { return mRenderInBox; }
             set {
@@ -60,7 +82,7 @@ namespace SourceGen.WpfGui {
         private string mUserInput;
 
         /// <summary>
-        /// Generated text output.  This is bound to the output TextBox.
+        /// Generated text output.  This is bound to the output TextBox, for display.
         /// </summary>
         public string TextOutput {
             get { return mTextOutput; }
@@ -71,30 +93,31 @@ namespace SourceGen.WpfGui {
         }
         private string mTextOutput;
 
-        // INotifyPropertyChanged implementation
-        public event PropertyChangedEventHandler PropertyChanged;
-        private void OnPropertyChanged([CallerMemberName] string propertyName = "") {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-
         /// <summary>
         /// ItemsSource for line width combo box.
         /// </summary>
         public int[] LineWidthItems { get; } = new int[] { 30, 40, 64, 80 };
 
 
+        /// <summary>
+        /// Dialog constructor.  Pass in the current formatter object.
+        /// </summary>
         public EditLongComment(Window owner, Asm65.Formatter formatter) {
             InitializeComponent();
             Owner = owner;
             DataContext = this;
 
             mFormatter = formatter;
-            LongComment = new MultiLineComment(string.Empty);
+            LongComment = new MultiLineComment(true);
         }
 
+        /// <summary>
+        /// Configures dialog controls after the window finishes loading.
+        /// </summary>
         private void Window_Loaded(object sender, RoutedEventArgs e) {
             Debug.Assert(LongComment != null);
             UserInput = LongComment.Text;
+            IsFancyEnabled = LongComment.IsFancy;
             RenderInBox = LongComment.BoxMode;
 
             // Try to find a match for the max width specified in the MLC.
@@ -133,7 +156,8 @@ namespace SourceGen.WpfGui {
         }
 
         /// <summary>
-        /// Formats entryTextBox.Text into displayTextBox.Text.
+        /// Formats entryTextBox.Text into displayTextBox.Text.  This is done every time the
+        /// user makes a change to the text entry box.
         /// </summary>
         private void FormatInput() {
             if (!IsLoaded) {
@@ -170,8 +194,30 @@ namespace SourceGen.WpfGui {
             if (maxWidthComboBox.SelectedItem == null) {
                 return null;    // still initializing
             }
-            return new MultiLineComment(UserInput, RenderInBox,
+            return new MultiLineComment(UserInput, IsFancyEnabled, RenderInBox,
                 (int)maxWidthComboBox.SelectedItem);
+        }
+
+        private const string HELP_TEXT =
+            "Fancy formatting tags:\r\n" +
+            "  [width=nn] sets the width to the specified value; '*' sets to default (80).\r\n" +
+            "  [br] breaks up the output with a totally blank line.\r\n" +
+            "  [box]...[/box] puts text in a box, using the comment char for the frame.\r\n" +
+            "  [box char='#']...[/box] puts text in a box, using the specified char.\r\n" +
+            "  [hr] outputs a horizontal line of characters, using the comment char.\r\n" +
+            "  [hr char='-'] outputs a horizontal rule, using the specified char.\r\n" +
+            "  [url]https://example.com/[/url] outputs a URL.\r\n" +
+            "  [url=https://example.com/]link text[/url] outputs a URL with separate link text.\r\n" +
+            "\r\n" +
+            "[width=nn] and [br] are not allowed in boxes, but [hr] and [url] are.\r\n" +
+            "\r\n" +
+            "If fancy mode is disabled, the Line Width and Render In Box controls are enabled,\r\n" +
+            "and will be used to format the text.  Formatting tags are not recognized.\r\n";
+
+        private void FormatHelp_Click(object sender, RoutedEventArgs e) {
+            Tools.WpfGui.ShowText dialog = new Tools.WpfGui.ShowText(this, HELP_TEXT);
+            dialog.Title = "Format Help";
+            dialog.ShowDialog();
         }
     }
 }

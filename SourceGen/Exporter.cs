@@ -173,7 +173,7 @@ namespace SourceGen
                 // A limit of 8 gets us 4 bytes from dense display ("20edfd60") and 3 if spaces
                 // are included ("20 ed fd") with no excess.  We want to increase it to 11 so
                 // we can always show 4 bytes.  Add one for a trailing "+".
-                width = mFormatter.Config.mSpacesBetweenBytes ? 12 : 9;
+                width = mFormatter.Config.SpacesBetweenBytes ? 12 : 9;
                 total = mColStart[(int)Col.Bytes + 1] = total + width + 1;
             }
             else
@@ -262,14 +262,17 @@ namespace SourceGen
             StringBuilder sb = new StringBuilder(mParameterStringBase);
 
             sb.Append(";byteSpc=");
-            sb.Append(mFormatter.Config.mSpacesBetweenBytes.ToString());
+            sb.Append(mFormatter.Config.SpacesBetweenBytes.ToString());
             sb.Append(";commaBulk=");
-            sb.Append(mFormatter.Config.mCommaSeparatedDense.ToString());
+            sb.Append(mFormatter.Config.CommaSeparatedDense.ToString());
             sb.Append(";nonuPfx='");
-            sb.Append(mFormatter.Config.mNonUniqueLabelPrefix);
+            sb.Append(mFormatter.Config.NonUniqueLabelPrefix);
             sb.Append('\'');
             sb.Append(";varPfx='");
-            sb.Append(mFormatter.Config.mLocalVariableLabelPrefix);
+            sb.Append(mFormatter.Config.LocalVariableLabelPrefix);
+            sb.Append('\'');
+            sb.Append(";flcd='");
+            sb.Append(mFormatter.Config.FullLineCommentDelimiterBase);
             sb.Append('\'');
             sb.Append(";labelBrk=");
             sb.Append(LongLabelNewLine.ToString());
@@ -278,7 +281,7 @@ namespace SourceGen
             sb.Append(";gfx=");
             sb.Append(GenerateImageFiles.ToString());
             sb.Append(";opWrap=");
-            sb.Append(mFormatter.Config.mOperandWrapLen);
+            sb.Append(mFormatter.Config.OperandWrapLen);
 
             // Not included: pseudo-op definitions; delimiter definitions
 
@@ -646,10 +649,8 @@ namespace SourceGen
             // but we're only doing this on the template file, which should be small.
             tmplStr = tmplStr.Replace("$ProjectName$", mProject.DataFileName);
             tmplStr = tmplStr.Replace("$AppVersion$", App.ProgramVersion.ToString());
-            string expModeStr = ((Formatter.FormatConfig.ExpressionMode)
-                AppSettings.Global.GetEnum(AppSettings.FMT_EXPRESSION_MODE,
-                    typeof(Formatter.FormatConfig.ExpressionMode),
-                    (int)Formatter.FormatConfig.ExpressionMode.Unknown)).ToString();
+            string expModeStr = AppSettings.Global.GetEnum(AppSettings.FMT_EXPRESSION_MODE,
+                    Formatter.FormatConfig.ExpressionMode.Unknown).ToString();
             tmplStr = tmplStr.Replace("$ExpressionStyle$", expModeStr);
             string dateStr = DateTime.Now.ToString("yyyy/MM/dd");
             string timeStr = DateTime.Now.ToString("HH:mm:ss zzz");

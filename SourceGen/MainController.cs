@@ -22,6 +22,7 @@ using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 using Asm65;
@@ -53,7 +54,7 @@ namespace SourceGen {
         private string mProjectPathName;
 
         /// <summary>
-        /// Data backing the code list.
+        /// Data backing the code list.  Will be null if the project is not open.
         /// </summary>
         public LineListGen CodeLineList { get; private set; }
 
@@ -241,8 +242,13 @@ namespace SourceGen {
 
         #region Init and settings
 
+        /// <summary>
+        /// Constructor, called from the main window code.
+        /// </summary>
         public MainController(MainWindow win) {
             mMainWin = win;
+
+            CreateAutoSaveTimer();
 
             ScriptManager.UseKeepAliveHack = true;
         }
@@ -256,7 +262,7 @@ namespace SourceGen {
             // Load the settings from the file.  If this fails we have no way to tell the user,
             // so just keep going.
             LoadAppSettings();
-            SetAppWindowLocation();
+            SetAppWindowLocation();     // <-- this causes WindowLoaded to fire
         }
 
         /// <summary>
@@ -325,6 +331,8 @@ namespace SourceGen {
             // values here when that isn't the case.  The point at which the setting is
             // actually used is expected to do something reasonable by default.
 
+            settings.SetInt(AppSettings.PROJ_AUTO_SAVE_INTERVAL, 60);   // enabled by default
+
             settings.SetBool(AppSettings.SYMWIN_SHOW_USER, true);
             settings.SetBool(AppSettings.SYMWIN_SHOW_NON_UNIQUE, false);
             settings.SetBool(AppSettings.SYMWIN_SHOW_PROJECT, true);
@@ -345,7 +353,8 @@ namespace SourceGen {
             settings.SetString(AppSettings.FMT_OPERAND_PREFIX_LONG, "f:");
 
             settings.SetBool(AppSettings.SRCGEN_ADD_IDENT_COMMENT, true);
-            settings.SetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, true);
+            settings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                AsmGen.GenCommon.LabelPlacement.SplitIfTooLong);
 
 #if DEBUG
             settings.SetBool(AppSettings.DEBUG_MENU_ENABLED, true);
@@ -454,20 +463,6 @@ namespace SourceGen {
         }
 
         /// <summary>
-        /// Replaces the contents of the global settings object with the new settings,
-        /// then applies them to the project.
-        /// </summary>
-        /// <param name="settings">New settings.</param>
-        public void SetAppSettings(AppSettings settings) {
-            AppSettings.Global.ReplaceSettings(settings);
-            ApplyAppSettings();
-
-            // We get called whenever Apply or OK is hit in the settings editor, so it's
-            // a pretty good time to save the settings out.
-            SaveAppSettings();
-        }
-
-        /// <summary>
         /// Sets the app window's location and size.  This should be called before the window has
         /// finished initialization.
         /// </summary>
@@ -501,29 +496,30 @@ namespace SourceGen {
             Debug.WriteLine("ApplyAppSettings...");
             AppSettings settings = AppSettings.Global;
 
-            // Set up the formatter.
+            // Set up the formatter with default values.
             mFormatterConfig = new Formatter.FormatConfig();
             AsmGen.GenCommon.ConfigureFormatterFromSettings(AppSettings.Global,
                 ref mFormatterConfig);
-            mFormatterConfig.mEndOfLineCommentDelimiter = ";";
-            mFormatterConfig.mFullLineCommentDelimiterBase = ";";
-            mFormatterConfig.mBoxLineCommentDelimiter = string.Empty;
+            mFormatterConfig.EndOfLineCommentDelimiter = ";";
 
-            mFormatterConfig.mNonUniqueLabelPrefix =
+            mFormatterConfig.NonUniqueLabelPrefix =
                 settings.GetString(AppSettings.FMT_NON_UNIQUE_LABEL_PREFIX, string.Empty);
-            mFormatterConfig.mLocalVariableLabelPrefix =
+            mFormatterConfig.LocalVariableLabelPrefix =
                 settings.GetString(AppSettings.FMT_LOCAL_VARIABLE_PREFIX, string.Empty);
-            mFormatterConfig.mCommaSeparatedDense =
+            mFormatterConfig.CommaSeparatedDense =
                 settings.GetBool(AppSettings.FMT_COMMA_SEP_BULK_DATA, true);
+            mFormatterConfig.SuppressImpliedAcc =
+                settings.GetBool(AppSettings.SRCGEN_OMIT_IMPLIED_ACC_OPERAND, false);
+            mFormatterConfig.DebugLongComments = DebugLongComments;
 
             string chrDelCereal = settings.GetString(AppSettings.FMT_CHAR_DELIM, null);
             if (chrDelCereal != null) {
-                mFormatterConfig.mCharDelimiters =
+                mFormatterConfig.CharDelimiters =
                     Formatter.DelimiterSet.Deserialize(chrDelCereal);
             }
             string strDelCereal = settings.GetString(AppSettings.FMT_STRING_DELIM, null);
             if (strDelCereal != null) {
-                mFormatterConfig.mStringDelimiters =
+                mFormatterConfig.StringDelimiters =
                     Formatter.DelimiterSet.Deserialize(strDelCereal);
             }
 
@@ -602,7 +598,7 @@ namespace SourceGen {
             mMainWin.DoShowCycleCounts =
                 AppSettings.Global.GetBool(AppSettings.FMT_SHOW_CYCLE_COUNTS, false);
 
-            // Finally, update the display list generator with all the fancy settings.
+            // Update the display list generator with all the fancy settings.
             if (CodeLineList != null) {
                 // Regenerate the display list with the latest formatter config and
                 // pseudo-op definition.  (These are set as part of the refresh.)
@@ -610,6 +606,9 @@ namespace SourceGen {
                     UndoableChange.CreateDummyChange(UndoableChange.ReanalysisScope.DisplayOnly);
                 ApplyChanges(new ChangeSet(uc), false);
             }
+
+            // If auto-save was enabled or disabled, create or remove the recovery file.
+            RefreshRecoveryFile();
         }
 
         private void SetCodeLineListColorMultiplier() {
@@ -726,6 +725,296 @@ namespace SourceGen {
         }
 
         #endregion Init and settings
+
+
+        #region Auto-save
+
+        private const string RECOVERY_EXT_ADD = "_rec";
+        private const string RECOVERY_EXT = ProjectFile.FILENAME_EXT + RECOVERY_EXT_ADD;
+
+        private string mRecoveryPathName = string.Empty;    // path to recovery file, or empty str
+        private Stream mRecoveryStream = null;              // stream for recovery file, or null
+
+        private DispatcherTimer mAutoSaveTimer = null;      // auto-save timer, may be disabled
+        private DateTime mLastEditWhen = DateTime.Now;      // timestamp of last user edit
+        private DateTime mLastAutoSaveWhen = DateTime.Now;  // timestamp of last auto-save
+
+        private bool mAutoSaveDeferred = false;
+
+
+        /// <summary>
+        /// Creates an interval timer that fires an event on the GUI thread.
+        /// </summary>
+        private void CreateAutoSaveTimer() {
+            mAutoSaveTimer = new DispatcherTimer();
+            mAutoSaveTimer.Tick += new EventHandler(AutoSaveTick);
+            mAutoSaveTimer.Interval = TimeSpan.FromSeconds(30); // place-holder, overwritten later
+        }
+
+        /// <summary>
+        /// Resets the auto-save timer to the configured interval.  Has no effect if the timer
+        /// isn't currently running.
+        /// </summary>
+        private void ResetAutoSaveTimer() {
+            if (mAutoSaveTimer.IsEnabled) {
+                // Setting the Interval resets the timer.
+                mAutoSaveTimer.Interval = mAutoSaveTimer.Interval;
+            }
+        }
+
+        /// <summary>
+        /// Handles the auto-save timer event.
+        /// </summary>
+        /// <remarks>
+        /// We're using a DispatcherTimer, which appears to execute as part of the dispatcher,
+        /// not a System.Timers.Timer thread, which runs asynchronously.  So not only do we not
+        /// have to worry about SynchronizationObjects, it seems likely that this won't fire
+        /// after the timer is disabled.
+        /// </remarks>
+        private void AutoSaveTick(object sender, EventArgs e) {
+            try {
+                if (mRecoveryStream == null) {
+                    Debug.WriteLine("AutoSave tick: no recovery file");
+                    return;
+                }
+                if (mLastEditWhen <= mLastAutoSaveWhen) {
+                    Debug.WriteLine("AutoSave tick: recovery file is current (edit at " +
+                        mLastEditWhen + ", auto-save at " + mLastAutoSaveWhen + ")");
+                    return;
+                }
+                if (!mProject.IsDirty) {
+                    // This may seem off, because of the following scenario: open a file, make a
+                    // single edit, wait for auto-save, then hit Undo.  Changes have been made,
+                    // but the project is now back to its original form, so IsDirty is false.  If
+                    // we don't auto-save now, the recovery file will have a newer modification
+                    // date than the project file, but will be stale.
+                    //
+                    // Technically, we don't need to update the recovery file, because the base
+                    // project file has the correct and complete project.  There's no real need
+                    // for us to save another copy.  If we crash, we'll have a stale recovery file
+                    // with a newer timestamp, but we could handle that by back-dating the file
+                    // timestamp or simply by truncating the recovery stream.
+                    //
+                    // The real reason for this test is that we don't want to auto-save if the
+                    // user is being good about manual saves.
+                    if (mRecoveryStream.Length != 0) {
+                        Debug.WriteLine("AutoSave tick: project not dirty, truncating recovery");
+                        mRecoveryStream.SetLength(0);
+                    } else {
+                        Debug.WriteLine("AutoSave tick: project not dirty");
+                    }
+                    mLastAutoSaveWhen = mLastEditWhen;      // bump this so earlier test fires
+                    return;
+                }
+
+                // The project is dirty, and we haven't auto-saved since the last change was
+                // made.  Serialize the project to the recovery file.
+                Mouse.OverrideCursor = Cursors.Wait;
+
+                DateTime startWhen = DateTime.Now;
+                mRecoveryStream.Position = 0;
+                mRecoveryStream.SetLength(0);
+                if (!ProjectFile.SerializeToStream(mProject, mRecoveryStream,
+                        out string errorMessage)) {
+                    Debug.WriteLine("AutoSave FAILED: " + errorMessage);
+                }
+                mRecoveryStream.Flush();    // flush is very important, timing is not; try Async?
+                mLastAutoSaveWhen = DateTime.Now;
+                Debug.WriteLine("AutoSave tick: recovery file updated: " + mRecoveryStream.Length +
+                    " bytes (" + (mLastAutoSaveWhen - startWhen).TotalMilliseconds + " ms)");
+            } catch (Exception ex) {
+                // Not expected, but let's not crash just because auto-save is broken.
+                Debug.WriteLine("AutoSave FAILED ENTIRELY: " + ex);
+            } finally {
+                Mouse.OverrideCursor = null;
+            }
+        }
+
+        /// <summary>
+        /// Creates or deletes the recovery file, based on the current app settings.
+        /// </summary>
+        /// <remarks>
+        /// <para>This is called when:</para>
+        /// <list type="bullet">
+        ///   <item>a new project is created</item>
+        ///   <item>an existing project is opened</item>
+        ///   <item>app settings are updated</item>
+        ///   <item>Save As is used to change the project path</item>
+        ///   <item>the project is saved for the first time after a recovery file decision (i.e.
+        ///     while mAutoSaveDeferred is true)</item>
+        /// </list>
+        /// </remarks>
+        private void RefreshRecoveryFile() {
+            if (mProject == null) {
+                // Project not open, nothing to do.
+                return;
+            }
+            if (mProject.IsReadOnly) {
+                // Changes cannot be made, so there's no need for a recovery file.  Also, we
+                // might be in read-only mode because the project is already open and has a
+                // recovery file opened by another process.
+                Debug.WriteLine("Recovery: project is read-only, not creating recovery file");
+                Debug.Assert(mRecoveryStream == null);
+                return;
+            }
+            if (mAutoSaveDeferred) {
+                Debug.WriteLine("Recovery: auto-save deferred, not touching recovery file");
+                return;
+            }
+
+            int interval = AppSettings.Global.GetInt(AppSettings.PROJ_AUTO_SAVE_INTERVAL, 0);
+            if (interval <= 0) {
+                // We don't want a recovery file.  If one is open, close it and remove it.
+                if (mRecoveryStream != null) {
+                    Debug.WriteLine("Recovery: auto-save is disabled");
+                    DiscardRecoveryFile();
+                    Debug.Assert(string.IsNullOrEmpty(mRecoveryPathName));
+                } else {
+                    Debug.WriteLine("Recovery: auto-save is disabled, file was not open");
+                }
+                mAutoSaveTimer.Stop();
+            } else {
+                // Configure auto-save.  We need to update the interval in case it was changed
+                // by an app settings update.
+                mAutoSaveTimer.Interval = TimeSpan.FromSeconds(interval);
+                // Force an initial auto-save (on next timer tick) if the project is dirty, in
+                // case auto-save was previously disabled.
+                mLastAutoSaveWhen = mLastEditWhen.AddSeconds(-1);
+
+                string pathName = GenerateRecoveryPathName(mProjectPathName);
+                if (!string.IsNullOrEmpty(mRecoveryPathName) && pathName == mRecoveryPathName) {
+                    // File is open and the filename hasn't changed.  Nothing to do.
+                    Debug.Assert(mRecoveryStream != null);
+                    Debug.WriteLine("Recovery: open, no changes");
+                } else {
+                    if (mRecoveryStream != null) {
+                        Debug.WriteLine("Recovery: closing '" + mRecoveryPathName +
+                            "' in favor of '" + pathName + "'");
+                        DiscardRecoveryFile();
+                    }
+                    if (!string.IsNullOrEmpty(pathName)) {
+                        Debug.WriteLine("Recovery: creating '" + pathName + "'");
+                        PrepareRecoveryFile();
+                    } else {
+                        // Must be a new project that has never been saved.
+                        Debug.WriteLine("Recovery: project name not set, can't create recovery file");
+                    }
+                }
+                mAutoSaveTimer.Start();
+            }
+        }
+
+        private static string GenerateRecoveryPathName(string pathName) {
+            if (string.IsNullOrEmpty(pathName)) {
+                return string.Empty;
+            } else {
+                return pathName + RECOVERY_EXT_ADD;
+            }
+        }
+
+        /// <summary>
+        /// Creates the recovery file, overwriting any existing file.  If auto-save is disabled
+        /// (indicated by an empty recovery file name), this does nothing.
+        /// </summary>
+        private void PrepareRecoveryFile() {
+            Debug.Assert(mRecoveryStream == null);
+            Debug.Assert(!string.IsNullOrEmpty(mProjectPathName));
+            Debug.Assert(string.IsNullOrEmpty(mRecoveryPathName));
+
+            string pathName = GenerateRecoveryPathName(mProjectPathName);
+            try {
+                mRecoveryStream = new FileStream(pathName, FileMode.OpenOrCreate, FileAccess.Write);
+                mRecoveryPathName = pathName;
+            } catch (Exception ex) {
+                MessageBox.Show(mMainWin, "Failed to create recovery file '" +
+                    pathName + "': " + ex.Message, "File Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        /// <summary>
+        /// If we have a recovery file, close and delete it.  This does nothing if the recovery
+        /// file is not currently open.
+        /// </summary>
+        private void DiscardRecoveryFile() {
+            if (mRecoveryStream == null) {
+                Debug.Assert(string.IsNullOrEmpty(mRecoveryPathName));
+                return;
+            }
+            Debug.WriteLine("Recovery: discarding recovery file '" + mRecoveryPathName + "'");
+            mRecoveryStream.Close();
+            try {
+                File.Delete(mRecoveryPathName);
+            } catch (Exception ex) {
+                MessageBox.Show(mMainWin, "Failed to delete recovery file '" +
+                    mRecoveryPathName + "': " + ex.Message, "File Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Discard our internal state.
+            }
+            mRecoveryStream = null;
+            mRecoveryPathName = string.Empty;
+            mAutoSaveTimer.Stop();
+        }
+
+        /// <summary>
+        /// Asks the user if they want to use the recovery file, if one is present and non-empty.
+        /// Both files must exist.
+        /// </summary>
+        /// <param name="projPathName">Path to project file we're trying to open</param>
+        /// <param name="recoveryPath">Path to recovery file.</param>
+        /// <param name="pathToUse">Result: path the user wishes to use.  If we didn't ask the
+        ///   user to choose, because the recovery file was empty or in use by another process,
+        ///   this will be an empty string.</param>
+        /// <param name="asReadOnly">Result: true if project should be opened read-only.</param>
+        /// <returns>False if the user cancelled the operation, true to continue.</returns>
+        private bool HandleRecoveryChoice(string projPathName, string recoveryPath,
+                out string pathToUse, out bool asReadOnly) {
+            pathToUse = string.Empty;
+            asReadOnly = false;
+
+            try {
+                using (FileStream stream = new FileStream(recoveryPath, FileMode.Open,
+                        FileAccess.ReadWrite, FileShare.None)) {
+                    if (stream.Length == 0) {
+                        // Recovery file exists, but is empty and not open by another process.
+                        // Ignore it.  (We could delete it here, but there's no need.)
+                        Debug.WriteLine("Recovery: found existing zero-length file (ignoring)");
+                        return true;
+                    }
+                }
+            } catch (Exception ex) {
+                // Unable to open recovery file.  This is probably happening because another
+                // process has the file open.
+                Debug.WriteLine("Unable to open recovery file: " + ex.Message);
+                MessageBoxResult mbr = MessageBox.Show(mMainWin,
+                    "The project has a recovery file that can't be opened, possibly because the " +
+                    "project is currently open by another copy of the application.  Do you wish " +
+                    "to open the file read-only?",
+                    "Unable to Open", MessageBoxButton.OKCancel, MessageBoxImage.Hand);
+                if (mbr == MessageBoxResult.OK) {
+                    asReadOnly = true;
+                    return true;
+                } else {
+                    asReadOnly = false;
+                    return false;
+                }
+            }
+
+            RecoveryChoice dlg = new RecoveryChoice(mMainWin, projPathName, recoveryPath);
+            if (dlg.ShowDialog() != true) {
+                return false;
+            }
+            if (dlg.UseRecoveryFile) {
+                Debug.WriteLine("Recovery: user chose recovery file");
+                pathToUse = recoveryPath;
+            } else {
+                Debug.WriteLine("Recovery: user chose project file");
+                pathToUse = projPathName;
+            }
+            return true;
+        }
+
+        #endregion Auto-save
 
 
         #region Project management
@@ -947,6 +1236,9 @@ namespace SourceGen {
             // ListView's selection index could be referencing a line off the end.
             // (This may not be necessary with WPF, because the way highlights work changed.)
             UpdateSelectionHighlight();
+
+            // Bump the edit timestamp so the auto-save will run.
+            mLastEditWhen = DateTime.Now;
         }
 
         /// <summary>
@@ -1058,6 +1350,9 @@ namespace SourceGen {
 
         #region Main window UI event handlers
 
+        /// <summary>
+        /// Handles creation of a new project.
+        /// </summary>
         public void NewProject() {
             if (!CloseProject()) {
                 return;
@@ -1087,6 +1382,8 @@ namespace SourceGen {
             bool ok = PrepareNewProject(Path.GetFullPath(dlg.DataFileName), dlg.SystemDef);
             if (ok) {
                 FinishPrep();
+                SaveProjectAs();
+                RefreshRecoveryFile();
             }
         }
 
@@ -1135,11 +1432,33 @@ namespace SourceGen {
             DisasmProject newProject = new DisasmProject();
             newProject.UseMainAppDomainForPlugins = UseMainAppDomainForPlugins;
 
+            // Is there a recovery file?
+            mAutoSaveDeferred = false;
+            string recoveryPath = GenerateRecoveryPathName(projPathName);
+            string openPath = projPathName;
+            if (File.Exists(recoveryPath)) {
+                // Found a recovery file.
+                bool ok = HandleRecoveryChoice(projPathName, recoveryPath, out string pathToUse,
+                    out bool asReadOnly);
+                if (!ok) {
+                    // Open has been cancelled.
+                    return;
+                }
+                if (!string.IsNullOrEmpty(pathToUse)) {
+                    // One was chosen.  This should be the case unless the recovery file was
+                    // empty, or was open by a different process.
+                    Debug.WriteLine("Open: user chose '" + pathToUse + "', deferring auto-save");
+                    openPath = pathToUse;
+                    mAutoSaveDeferred = true;
+                }
+                newProject.IsReadOnly |= asReadOnly;
+            }
+
             // Deserialize the project file.  I want to do this before loading the data file
             // in case we decide to store the data file name in the project (e.g. the data
             // file is a disk image or zip archive, and we need to know which part(s) to
             // extract).
-            if (!ProjectFile.DeserializeFromFile(projPathName, newProject,
+            if (!ProjectFile.DeserializeFromFile(openPath, newProject,
                     out FileLoadReport report)) {
                 // Should probably use a less-busy dialog for something simple like
                 // "permission denied", but the open file dialog handles most simple
@@ -1156,11 +1475,16 @@ namespace SourceGen {
             // locate it manually, repeating the process until successful or canceled.
             const string UNKNOWN_FILE = "UNKNOWN";
             string dataPathName;
-            if (projPathName.Length <= ProjectFile.FILENAME_EXT.Length) {
-                dataPathName = UNKNOWN_FILE;
-            } else {
+            if (projPathName.EndsWith(ProjectFile.FILENAME_EXT,
+                    StringComparison.InvariantCultureIgnoreCase)) {
                 dataPathName = projPathName.Substring(0,
                     projPathName.Length - ProjectFile.FILENAME_EXT.Length);
+            } else if (projPathName.EndsWith(RECOVERY_EXT,
+                    StringComparison.InvariantCultureIgnoreCase)) {
+                dataPathName = projPathName.Substring(0,
+                    projPathName.Length - RECOVERY_EXT.Length);
+            } else {
+                dataPathName = UNKNOWN_FILE;
             }
             byte[] fileData;
             while ((fileData = FindValidDataFile(ref dataPathName, newProject,
@@ -1184,13 +1508,14 @@ namespace SourceGen {
                     return;
                 }
 
-                newProject.IsReadOnly = dlg.WantReadOnly;
+                newProject.IsReadOnly |= dlg.WantReadOnly;
             }
 
             mProject = newProject;
             mProjectPathName = mProject.ProjectPathName = projPathName;
             mDataPathName = dataPathName;
             FinishPrep();
+            RefreshRecoveryFile();
         }
 
         /// <summary>
@@ -1311,6 +1636,8 @@ namespace SourceGen {
             // Success, record the path name.
             mProjectPathName = mProject.ProjectPathName = pathName;
 
+            RefreshRecoveryFile();
+
             // add it to the title bar
             UpdateTitle();
             return true;
@@ -1329,6 +1656,7 @@ namespace SourceGen {
         }
 
         private bool DoSave(string pathName) {
+            Debug.Assert(!mProject.IsReadOnly);     // save commands should be disabled
             Debug.WriteLine("SAVING " + pathName);
             if (!ProjectFile.SerializeToFile(mProject, pathName, out string errorMessage)) {
                 MessageBox.Show(Res.Strings.ERR_PROJECT_SAVE_FAIL + ": " + errorMessage,
@@ -1349,6 +1677,14 @@ namespace SourceGen {
 
             // Seems like a good time to save this off too.
             SaveAppSettings();
+
+            if (mAutoSaveDeferred) {
+                mAutoSaveDeferred = false;
+                RefreshRecoveryFile();
+            }
+
+            // The project file is saved, no need to auto-save for a while.
+            ResetAutoSaveTimer();
 
             return true;
         }
@@ -1421,6 +1757,7 @@ namespace SourceGen {
             }
             mDataPathName = null;
             mProjectPathName = null;
+            CodeLineList = null;
 
             // We may get a "selection changed" message as things are being torn down.  Clear
             // these so we don't try to remove the highlight from something that doesn't exist.
@@ -1433,6 +1770,8 @@ namespace SourceGen {
             mGenerationLog = null;
 
             UpdateTitle();
+
+            DiscardRecoveryFile();
 
             // Not necessary, but it lets us check the memory monitor to see if we got
             // rid of everything.
@@ -1476,10 +1815,8 @@ namespace SourceGen {
                 return;
             }
 
-            ClipLineFormat format = (ClipLineFormat)AppSettings.Global.GetEnum(
-                    AppSettings.CLIP_LINE_FORMAT,
-                    typeof(ClipLineFormat),
-                    (int)ClipLineFormat.AssemblerSource);
+            ClipLineFormat format = AppSettings.Global.GetEnum(AppSettings.CLIP_LINE_FORMAT,
+                    ClipLineFormat.AssemblerSource);
 
             int[] rightWidths = new int[] { 16, 6, 16, 80 };
 
@@ -1519,21 +1856,30 @@ namespace SourceGen {
         }
 
         /// <summary>
-        /// Opens the application settings dialog.  All changes to settings are made directly
-        /// to the AppSettings.Global object.
+        /// Handles Edit &gt; App Settings.
         /// </summary>
         public void EditAppSettings() {
             ShowAppSettings(mMainWin, WpfGui.EditAppSettings.Tab.Unknown,
                 AsmGen.AssemblerInfo.Id.Unknown);
         }
 
+        /// <summary>
+        /// Opens the application settings dialog.  All changes to settings are made directly
+        /// to the AppSettings.Global object.
+        /// </summary>
         public void ShowAppSettings(Window owner, EditAppSettings.Tab initialTab,
                     AsmGen.AssemblerInfo.Id initialAsmId) {
-            EditAppSettings dlg = new EditAppSettings(owner, mMainWin, this,
-                initialTab, initialAsmId);
+            EditAppSettings dlg = new EditAppSettings(owner, mMainWin, initialTab, initialAsmId);
+            dlg.SettingsApplied += SetAppSettings;      // called when "Apply" is clicked
             dlg.ShowDialog();
+        }
 
-            // The settings code calls SetAppSettings() directly whenever "Apply" is hit.
+        /// <summary>
+        /// Applies settings to the project, and saves them to the settings files.
+        /// </summary>
+        private void SetAppSettings() {
+            ApplyAppSettings();
+            SaveAppSettings();
         }
 
         public void HandleCodeListDoubleClick(int row, int col) {
@@ -1930,8 +2276,7 @@ namespace SourceGen {
                 }
 
                 // Create a prototype entry with the various values.
-                newEntry = new AddressMap.AddressMapEntry(firstOffset,
-                    selectedLen, addr, string.Empty, false);
+                newEntry = new AddressMap.AddressMapEntry(firstOffset, selectedLen, addr);
                 Debug.WriteLine("New entry prototype: " + newEntry);
             }
 
@@ -2359,6 +2704,7 @@ namespace SourceGen {
                     Debug.WriteLine("No change to data formats");
                 }
             }
+
         }
 
         public void EditProjectProperties(WpfGui.EditProjectProperties.Tab initialTab) {
@@ -2566,6 +2912,47 @@ namespace SourceGen {
                 } finally {
                     Mouse.OverrideCursor = null;
                 }
+            }
+        }
+
+        public void GenerateLabels() {
+            GenerateLabels dlg = new GenerateLabels(mMainWin);
+            if (dlg.ShowDialog() == false) {
+                return;
+            }
+
+            string ext;
+            string filter;
+            switch (dlg.Format) {
+                case LabelFileGenerator.LabelFmt.VICE:
+                    ext = ".lbl";
+                    filter = "VICE labels (*.lbl)|*.lbl";
+                    break;
+                default:
+                    Debug.Assert(false, "bad format");
+                    return;
+            }
+
+            SaveFileDialog fileDlg = new SaveFileDialog() {
+                Filter = filter,
+                FilterIndex = 1,
+                ValidateNames = true,
+                AddExtension = true,    // doesn't add extension if non-ext file exists
+                FileName = "labels" + ext
+            };
+            if (fileDlg.ShowDialog() != true) {
+                return;
+            }
+            string pathName = Path.GetFullPath(fileDlg.FileName);
+            try {
+                using (StreamWriter writer = new StreamWriter(pathName, false)) {
+                    LabelFileGenerator gen = new LabelFileGenerator(mProject,
+                        dlg.Format, dlg.IncludeAutoLabels);
+                    gen.Generate(writer);
+                }
+            } catch (Exception ex) {
+                MessageBox.Show("Error: " + ex.Message, "Failed", MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
 
@@ -3920,7 +4307,8 @@ namespace SourceGen {
                 return;
             }
             int lineIndex = mMainWin.CodeListView_GetFirstSelectedIndex();
-            LineListGen.Line.Type type = CodeLineList[lineIndex].LineType;
+            LineListGen.Line line = CodeLineList[lineIndex];
+            LineListGen.Line.Type type = line.LineType;
             if (type != LineListGen.Line.Type.Code &&
                     type != LineListGen.Line.Type.Data &&
                     type != LineListGen.Line.Type.EquDirective &&
@@ -3933,10 +4321,10 @@ namespace SourceGen {
 
             // Find the appropriate xref set.
             if (type == LineListGen.Line.Type.LocalVariableTable) {
-                DefSymbol defSym = CodeLineList.GetLocalVariableFromLine(CodeLineList[lineIndex]);
+                DefSymbol defSym = CodeLineList.GetLocalVariableFromLine(line);
                 xrefs = (defSym == null) ? null : defSym.Xrefs;
             } else {
-                int offset = CodeLineList[lineIndex].FileOffset;
+                int offset = line.FileOffset;
                 if (offset < 0) {
                     // EQU in header
                     int index = LineListGen.DefSymIndexFromOffset(offset);
@@ -4694,6 +5082,11 @@ namespace SourceGen {
 
         #region Debug features
 
+        /// <summary>
+        /// If set, show rulers and visible spaces in long comments.
+        /// </summary>
+        internal bool DebugLongComments { get; private set; } = false;
+
         public void Debug_ExtensionScriptInfo() {
             string info = mProject.DebugGetLoadedScriptInfo();
 
@@ -4766,12 +5159,15 @@ namespace SourceGen {
         }
 
         public void Debug_ToggleCommentRulers() {
-            MultiLineComment.DebugShowRuler = !MultiLineComment.DebugShowRuler;
-            // Don't need to repeat the analysis, but we do want to save/restore the
-            // selection and top position when the comment fields change size.
-            UndoableChange uc =
-                UndoableChange.CreateDummyChange(UndoableChange.ReanalysisScope.DataOnly);
-            ApplyChanges(new ChangeSet(uc), false);
+            DebugLongComments = !DebugLongComments;
+            mFormatterConfig.DebugLongComments = DebugLongComments;
+            mFormatterConfig.AddSpaceLongComment = !DebugLongComments;
+            mFormatterCpuDef = null;        // force mFormatter refresh on next analysis
+            if (CodeLineList != null) {
+                UndoableChange uc =
+                    UndoableChange.CreateDummyChange(UndoableChange.ReanalysisScope.DisplayOnly);
+                ApplyChanges(new ChangeSet(uc), false);
+            }
         }
 
         public void Debug_ToggleKeepAliveHack() {

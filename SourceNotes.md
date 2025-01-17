@@ -38,3 +38,27 @@ SourceGen/RuntimeData directory has the system definitions used for the
 "new project" list, along with subdirectories with symbol files and extension
 scripts.  The [README file there](SourceGen/RuntimeData/README.md)
 explains a bit more.
+
+## Publishing a New Release ##
+
+Steps:
+
+ 1. Update the version number in `SourceGen/App.xaml.cs`.
+ 2. Run Debug &gt; Source Generation Tests to verify that the code generation
+    tests pass.  This requires that all cross-assemblers be installed and
+    configured.
+ 3. Remove any existing `DIST_Release` directory from the top level.
+ 4. In Visual Studio, change the build configuration to Release, and the
+	startup project to MakeDist.
+ 5. Do a full clean build.
+ 6. Hit F5 to start MakeDist.  Click "Build" to generate a release build.  The
+	files will be copied into `DIST_Release`.
+ 7. Create an empty ZIP file (e.g. `6502bench123d1.zip`).
+ 8. Copy all files from `DIST_Release` into it.
+ 9. Submit all changes to git, push them to the server.
+ 10. Create a new release on github.  Drag the ZIP file into it.
+ 11. Update/close any issues that have been addressed by the new release.
+	 Add the change notes to the wiki page.
+
+Version numbers should follow the semantic versioning scheme: v1.2.3,
+v1.2.3-dev1, etc.

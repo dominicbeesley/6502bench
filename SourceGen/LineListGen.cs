@@ -72,10 +72,10 @@ namespace SourceGen {
         private PseudoOp.PseudoOpNames mPseudoOpNames;
 
         /// <summary>
-        /// Cache of previously-formatted data.  The data is stored with references to
+        /// Cache of previously-formatted operand data.  The data is stored with references to
         /// dependencies, so it should not be necessary to explicitly clear this.
         /// </summary>
-        private FormattedOperandCache mFormattedLineCache;
+        private FormattedOperandCache mFormattedLineCache = new FormattedOperandCache();
 
         /// <summary>
         /// Local variable table data extractor.
@@ -473,7 +473,6 @@ namespace SourceGen {
             mPseudoOpNames = opNames;
 
             mLineList = new List<Line>();
-            mFormattedLineCache = new FormattedOperandCache();
             mShowCycleCounts = AppSettings.Global.GetBool(AppSettings.FMT_SHOW_CYCLE_COUNTS,
                 false);
             mLvLookup = new LocalVariableLookup(mProject.LvTables, mProject, null, false, false);
@@ -969,7 +968,7 @@ namespace SourceGen {
         private void GenerateLineList(int startOffset, int endOffset, List<Line> lines) {
             //Debug.WriteLine("GenerateRange [+" + startOffset.ToString("x6") + ",+" +
             //    endOffset.ToString("x6") + "]");
-
+            DebugResetCacheCounters();
 
             Debug.Assert(startOffset >= 0);
             Debug.Assert(endOffset >= startOffset);
@@ -1049,8 +1048,8 @@ namespace SourceGen {
                 // and require word-wrap, so it's easiest just to render them fully here.
                 // Set "spaceAdded" to true so arstart doesn't try to add one after the comment.
                 //
-                // TODO: integrate into FormattedOperandCache so we don't have to
-                //   regenerate them unless they change.  Use the MLC as the dependency.
+                // MultiLineComment now caches the previous render, and will return it from
+                // the FormatText() call if the arguments match.
                 if (mProject.Notes.TryGetValue(offset, out MultiLineComment noteData)) {
                     List<string> formatted = noteData.FormatText(mFormatter, "NOTE: ");
                     StringListToLines(formatted, offset, Line.Type.Note,
@@ -1128,9 +1127,19 @@ namespace SourceGen {
                             comment += " (auto-generated)";
                         }
 #else
-                        string comment = string.Empty;
+                        string cstr = string.Empty;
                         if (change.IsSynthetic) {
-                            comment = mFormatter.FormatEolComment("(auto-generated)");
+                            cstr += " (auto-generated)";
+                        }
+                        if (region.DisallowInward) {
+                            cstr += " [!in]";
+                        }
+                        if (region.DisallowOutward) {
+                            cstr += " [!out]";
+                        }
+                        string comment = string.Empty;
+                        if (cstr.Length > 0) {
+                            comment = mFormatter.FormatEolComment(cstr.Substring(1));
                         }
 #endif
                         newLine.Parts = FormattedParts.CreateFullDirective(string.Empty,
@@ -1266,7 +1275,7 @@ namespace SourceGen {
                 } else {
                     Debug.Assert(attr.DataDescriptor != null);
                     if (attr.DataDescriptor.IsString) {
-                        // See if we've already got this one.
+                        // String operand.  See if we've already formatted this one.
                         List<string> strLines = mFormattedLineCache.GetStringEntry(offset,
                             mFormatter, attr.DataDescriptor, mPseudoOpNames, out string popcode);
                         if (strLines == null) {
@@ -1353,6 +1362,8 @@ namespace SourceGen {
                     }
                 }
             }
+
+            DebugLogCacheCounters();
         }
 
         /// <summary>
@@ -1756,6 +1767,13 @@ namespace SourceGen {
         IEnumerator IEnumerable.GetEnumerator()
         {
             return mLineList.GetEnumerator();
+        }
+        
+        public void DebugResetCacheCounters() {
+            mFormattedLineCache.DebugResetCounters();
+        }
+        public void DebugLogCacheCounters() {
+            mFormattedLineCache.DebugLogCounters();
         }
     }
 }

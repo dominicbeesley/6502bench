@@ -30,7 +30,7 @@ you prefer hexadecimal values to be shown in upper case.  None of them
 affect the way the project analyzes code and data, though they may affect
 the way generated assembly sources look.</p>
 
-<p>The settings editor is divided into four tabs.  Changes don't take
+<p>The settings editor is divided into five tabs.  Changes don't take
 effect until you hit <samp>Apply</samp> or <samp>OK</samp>.</p>
 
 
@@ -81,8 +81,17 @@ from the system theme, but the disassembly list uses a custom style.  You
 can change the rest of the UI from the Windows display "personalization"
 controls.)</p>
 
+<p>The <samp>auto-save interval</samp> selection determines the frequency
+of saves to the recovery file.  Setting it to <samp>disabled</samp> will
+disable the feature entirely, and prevent recovery files from being created
+(though they will still be checked for when projects are opened).</p>
+
 
 <h3 id="appset-textdelim">Text Delimiters</h3>
+
+<p>These options change the way the code list looks on screen.  They
+do not affect generated code, which must use the delimiter characters
+specified by the chosen assembler.</p>
 
 <p>Character and string operands are shown surrounded by quotes, e.g.
 <code>LDA #'*'</code> or <code>.STR "Hello, world!"</code>.  It's
@@ -92,8 +101,8 @@ supported character encoding.</p>
 <p>String operands may contain a mixture of text and hexadecimal values.
 For example, in ASCII data, the control characters for linefeed and
 carriage return ($0a and $0d) are considered part of the string, but
-don't have a printable symbol.  (Unicode defines some glpyhs, but they
-don't look very good at smaller font sizes.)</p>
+don't have a printable symbol.  (Unicode defines some "control picture"
+glyphs, but they don't look very good at smaller font sizes.)</p>
 <p>If one of the delimiter characters appears in the string itself,
 the character will be output as hex to avoid confusion.  For this
 reason, it's generally wise to use delimiter characters that aren't
@@ -104,9 +113,6 @@ copy and paste (with <kbd class="key">Ctrl+C</kbd> /
 <p>For character operands, the prefix and suffix are added to the start
 and end of the operand.  For string operands, the prefix is added to the
 start of the first line, and suffixes aren't allowed.</p>
-<p>These options change the way the code list looks on screen.  They
-do not affect generated code, which must use the delimiter characters
-specified by the chosen assembler.</p>
 
 <p>The "quick set" pop-up can be used to set the fields for a few
 common configurations.  The default set uses curly quotes with a few
@@ -128,11 +134,17 @@ You may specify values for all of them or none of them.</p>
 <p>Different assemblers have different ways of forming expressions.
 Sometimes the rules allow expressions to be written simply, other times
 explicit grouping with parenthesis is required.  Select whichever style
-you are most comfortable with.</p>
+you are most comfortable with.
+(64tass and ACME use the "common"
+expression style, cc65 and Merlin 32 have their own unique styles.)</p>
+
+<p>The character used to start a full-line comment is usually
+'<code>;</code>', but can be changed here.</p>
 
 <p>Non-unique labels are identified with a prefix character, typically
-'@' or ':'.  The default is '@', but you can configure it to any character
-that isn't valid for the start of a label.  (64tass uses '_' for locals,
+'<code>@</code>' or '<code>:</code>'.  The default is '<code>@</code>',
+but you can configure it to any character that isn't valid for the start
+of a label.  (64tass uses '<code>_</code>' for locals,
 but that's a valid label start character, and so isn't allowed here.)
 The setting affects label editing as well as display.</p>
 
@@ -147,9 +159,7 @@ required, the latter is more readable.</p>
 <p>The "quick set" pop-up configures the fields on the left side of the
 tab to match the conventions of the specified assembler.  Select your
 preferred assembler in the combo box to set the fields.  The setting
-automatically switches to "custom" when you edit a field.
-(64tass and ACME use the "common"
-expression style, cc65 and Merlin 32 have their own unique styles.)</p>
+automatically changes to "custom" when you modify a field.</p>
 
 <p>The <samp>add spaces in Bytes column</samp> checkbox changes the format
 of the hex data in the code list "bytes" column from dense
@@ -185,9 +195,9 @@ in the combo box to set the fields.  The setting automatically switches to
 <p>These settings configure cross-assemblers and modify assembly source
 generation in various ways.</p>
 <p>To configure an assembler, select it in the pop-up menu.  The fields
-will initially contain assembler-specific default values.  All of
-the values in the Assembler Configuration box may be configured
-differently for each assembler.</p>
+will initially contain assembler-specific default values.  The values
+in the Assembler-Specific Configuration box may be configured
+independently for each assembler.</p>
 <p>The "executable" box holds the full path to the cross-assembler
 executable.</p>
 <ul>
@@ -204,16 +214,12 @@ not hard stops: if the contents of a field are too wide, the contents
 of the next column will be pushed over.  (The comment field width is
 not currently being used, but may be used to fold lines in the future.)</p>
 
+<p>The next section, Code Generation Settings, affects all assemblers.</p>
+
 <p>When <samp>show cycle counts in comments</samp> is checked, cycle
 counts are inserted into end-of-line comments.  This works the same as
 the option in the <samp>Code View</samp> tab, but applies to generated
 source code rather than the on-screen display.</p>
-
-<p>If <samp>put long labels on separate line</samp> is checked, labels
-that are longer than the label column are placed on their own line.  This
-looks a bit nicer because otherwise the opcode gets pushed out of alignment.
-(Some assemblers get bent out of shape if you split an equate
-directive, so those might stay on one line.)</p>
 
 <p>If you enable <samp>identify assembler in output</samp>, a comment will be
 added to the top of the generated assembly output that identifies the
@@ -222,6 +228,31 @@ passed to the assembler.  This can be very helpful if the source
 file is sent to other people, since it may not otherwise be obvious from
 the source file what the intended target assembler is, or what options
 are required to process the file correctly.</p>
+
+<p>Some 6502 instructions have an "implied" accumulator address mode, e.g.
+<code>LSR</code> and <code>ASL</code>.  The operand may be shown as
+"<code>A</code>" to make the address mode explicit, but it can also be
+omitted.  Some assemblers require it to be present, some require it to be
+absent, most allow either.  By default, the operand is shown, but enabling
+<samp>omit implied accumulator operands if allowed</samp> will cause it to
+be omitted on-screen, in the instruction chart, and in source generated for
+assemblers that don't require it to be present.</p>
+
+<p>Labels can generally be placed either on the same line as a code or data
+operand, or on the line before it.  Placing them on the same line makes
+the output a bit more compact, but if the label is longer than the label
+column is wide, the subsequent fields can be pushed out of alignment.
+The placement is configurable.  Labels can be output on their own line:</p>
+<ol>
+  <li>Only when required - labels will not be placed on a separate line
+    unless the assembler requires them to be.</li>
+  <li>When the label is wider than the field - labels will only be
+    placed on a separate line when they don't fit in the label column.</li>
+  <li>Whenever possible - labels are always placed on a separate line
+    when they are allowed to be.  Most assemblers require that the label
+    be on the same line as assignment pseudo-ops,
+    e.g. "<code>FOO = $1000</code>".</li>
+</ol>
 
 
 <h2 id="project-properties">Project Properties</h2>
@@ -314,8 +345,9 @@ character encoding (e.g. you can default string operands to PETSCII),
 this setting will determine which encoding is preferred in generated
 sources.</p>
 <p>The <samp>min chars for string detection</samp> setting determines how
-many ASCII characters need to appear consecutively for the data analyzer to
-declare it a string.  Shorter values are prone to false-positive
+many printable characters (based on the default text encoding setting)
+need to appear consecutively for the data analyzer to
+decide it's a string.  Shorter values are prone to false-positive
 identifications, longer values miss out on short strings.  You can also
 set it to "none" to disable automatic string identification.</p>
 <p>The <samp>auto-label style</samp> setting determines the format for

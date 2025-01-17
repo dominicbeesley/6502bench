@@ -22,6 +22,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Microsoft.Win32;
 
 using Asm65;
@@ -30,7 +31,7 @@ using CommonUtil;
 using AssemblerInfo = SourceGen.AsmGen.AssemblerInfo;
 using AssemblerConfig = SourceGen.AsmGen.AssemblerConfig;
 using ExpressionMode = Asm65.Formatter.FormatConfig.ExpressionMode;
-using System.Windows.Input;
+using LabelPlacement = SourceGen.AsmGen.GenCommon.LabelPlacement;
 
 namespace SourceGen.WpfGui {
     /// <summary>
@@ -38,16 +39,17 @@ namespace SourceGen.WpfGui {
     /// </summary>
     public partial class EditAppSettings : Window, INotifyPropertyChanged {
         /// <summary>
+        /// Event that the controller can subscribe to if it wants to be notified when the
+        /// "Apply" or "OK" button is hit.
+        /// </summary>
+        public event SettingsAppliedHandler SettingsApplied;
+        public delegate void SettingsAppliedHandler();
+
+        /// <summary>
         /// Reference to main window.  Needed for examination of the code list font and
         /// column widths.
         /// </summary>
         private MainWindow mMainWin;
-
-        /// <summary>
-        /// Reference to main controller.  Needed to push settings out when Apply/OK is clicked.
-        /// TODO: use an Event instead?
-        /// </summary>
-        private MainController mMainCtrl;
 
         /// <summary>
         /// Copy of settings that we make changes to.  On "Apply" or "OK", this is pushed
@@ -103,14 +105,13 @@ namespace SourceGen.WpfGui {
         }
 
 
-        public EditAppSettings(Window owner, MainWindow mainWin, MainController mainCtrl,
-                Tab initialTab, AssemblerInfo.Id initialAsmId) {
+        public EditAppSettings(Window owner, MainWindow mainWin, Tab initialTab,
+                AssemblerInfo.Id initialAsmId) {
             InitializeComponent();
             Owner = owner;
             DataContext = this;
 
             mMainWin = mainWin;
-            mMainCtrl = mainCtrl;
             mInitialTab = initialTab;
             mInitialAsmId = initialAsmId;
 
@@ -204,13 +205,24 @@ namespace SourceGen.WpfGui {
                 // QueryVersions() can sometimes be slow under Win10 (mid 2019), possibly
                 // because of the built-in malware detection, so pop up a wait cursor.
                 Mouse.OverrideCursor = Cursors.Wait;
-                mMainCtrl.SetAppSettings(mSettings);
+                AppSettings.Global.ReplaceSettings(mSettings);
+                OnSettingsApplied();
                 AsmGen.AssemblerVersionCache.QueryVersions();
             } finally {
                 Mouse.OverrideCursor = null;
             }
 
             IsDirty = false;
+        }
+
+        /// <summary>
+        /// Raises the "settings applied" event.
+        /// </summary>
+        private void OnSettingsApplied() {
+            SettingsAppliedHandler handler = SettingsApplied;
+            if (handler != null) {
+                handler();
+            }
         }
 
 
@@ -229,7 +241,7 @@ namespace SourceGen.WpfGui {
             }
         }
         // NOTE: in the current implementation, the array index must match the enum value
-        private static ClipboardFormatItem[] sClipboardFormatItems = {
+        private static readonly ClipboardFormatItem[] sClipboardFormatItems = {
             new ClipboardFormatItem(Res.Strings.CLIPFORMAT_ASSEMBLER_SOURCE,
                 MainController.ClipLineFormat.AssemblerSource),
             new ClipboardFormatItem(Res.Strings.CLIPFORMAT_DISASSEMBLY,
@@ -241,6 +253,27 @@ namespace SourceGen.WpfGui {
         public ClipboardFormatItem[] ClipboardFormatItems {
             get { return sClipboardFormatItems; }
         }
+
+        /// <summary>
+        /// Entries for the auto-save combo box.
+        /// </summary>
+        public class AutoSaveItem {
+            public string Title { get; private set; }
+            public int Interval { get; private set; }
+
+            public AutoSaveItem(string title, int interval) {
+                Title = title;
+                Interval = interval;
+            }
+        }
+        private static readonly AutoSaveItem[] sAutoSaveItems = {
+            new AutoSaveItem(Res.Strings.AUTO_SAVE_OFF, 0),
+            //new AutoSaveItem("5 seconds!", 5),      // DEBUG
+            new AutoSaveItem(Res.Strings.AUTO_SAVE_1_MIN, 60),
+            new AutoSaveItem(Res.Strings.AUTO_SAVE_5_MIN, 300),
+        };
+        public AutoSaveItem[] AutoSaveItems { get { return sAutoSaveItems; } }
+
 
         private void Loaded_CodeView() {
             // Column widths.  We called CaptureColumnWidths() during init, so this
@@ -269,13 +302,24 @@ namespace SourceGen.WpfGui {
             UpperOperandXY = mSettings.GetBool(AppSettings.FMT_UPPER_OPERAND_XY, false);
 
             Debug.Assert(clipboardFormatComboBox.Items.Count == sClipboardFormatItems.Length);
-            int clipIndex = mSettings.GetEnum(AppSettings.CLIP_LINE_FORMAT,
-                typeof(MainController.ClipLineFormat), 0);
+            int clipIndex = (int)mSettings.GetEnum(AppSettings.CLIP_LINE_FORMAT,
+                MainController.ClipLineFormat.AssemblerSource);
             if (clipIndex >= 0 && clipIndex < sClipboardFormatItems.Length) {
                 // require Value == clipIndex because we're lazy and don't want to search
                 Debug.Assert((int)sClipboardFormatItems[clipIndex].Value == clipIndex);
                 clipboardFormatComboBox.SelectedIndex = clipIndex;
             }
+
+            // Look for a matching auto-save interval.
+            int autoSaveInterval = mSettings.GetInt(AppSettings.PROJ_AUTO_SAVE_INTERVAL, 0);
+            int autoSaveIndex = 1;      // show a non-disabled value if we don't find a match
+            for (int i = 0; i < sAutoSaveItems.Length; i++) {
+                if (sAutoSaveItems[i].Interval == autoSaveInterval) {
+                    autoSaveIndex = i;
+                    break;
+                }
+            }
+            autoSaveComboBox.SelectedIndex = autoSaveIndex;
 
             EnableDebugMenu = mSettings.GetBool(AppSettings.DEBUG_MENU_ENABLED, false);
         }
@@ -403,8 +447,13 @@ namespace SourceGen.WpfGui {
         private void ClipboardFormatComboBox_SelectionChanged(object sender,
                 SelectionChangedEventArgs e) {
             ClipboardFormatItem item = (ClipboardFormatItem)clipboardFormatComboBox.SelectedItem;
-            mSettings.SetEnum(AppSettings.CLIP_LINE_FORMAT, typeof(MainController.ClipLineFormat),
-                (int)item.Value);
+            mSettings.SetEnum(AppSettings.CLIP_LINE_FORMAT, item.Value);
+            IsDirty = true;
+        }
+
+        private void AutoSaveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
+            AutoSaveItem item = (AutoSaveItem)autoSaveComboBox.SelectedItem;
+            mSettings.SetInt(AppSettings.PROJ_AUTO_SAVE_INTERVAL, item.Interval);
             IsDirty = true;
         }
 
@@ -746,14 +795,6 @@ namespace SourceGen.WpfGui {
                 IsDirty = true;
             }
         }
-        public bool LongLabelNewLine {
-            get { return mSettings.GetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, false); }
-            set {
-                mSettings.SetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, value);
-                OnPropertyChanged();
-                IsDirty = true;
-            }
-        }
         public bool AddIdentComment {
             get { return mSettings.GetBool(AppSettings.SRCGEN_ADD_IDENT_COMMENT, false); }
             set {
@@ -761,6 +802,66 @@ namespace SourceGen.WpfGui {
                 OnPropertyChanged();
                 IsDirty = true;
             }
+        }
+        public bool OmitImpliedAccOperand {
+            get { return mSettings.GetBool(AppSettings.SRCGEN_OMIT_IMPLIED_ACC_OPERAND, false); }
+            set {
+                mSettings.SetBool(AppSettings.SRCGEN_OMIT_IMPLIED_ACC_OPERAND, value);
+                OnPropertyChanged();
+                IsDirty = true;
+            }
+        }
+
+        // label placement radio buttons
+        public bool LabelPlacement_PreferSameLine {
+            get {
+                LabelPlacement place = mSettings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.SplitIfTooLong);
+                return place == LabelPlacement.PreferSameLine;
+            }
+            set {
+                if (value) {
+                    mSettings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.PreferSameLine);
+                    LabelPlacementChanged();
+                    IsDirty = true;
+                }
+            }
+        }
+        public bool LabelPlacement_SplitIfTooLong {
+            get {
+                LabelPlacement place = mSettings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.SplitIfTooLong);
+                return place == LabelPlacement.SplitIfTooLong;
+            }
+            set {
+                if (value) {
+                    mSettings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.SplitIfTooLong);
+                    LabelPlacementChanged();
+                    IsDirty = true;
+                }
+            }
+        }
+        public bool LabelPlacement_PreferSeparateLine {
+            get {
+                LabelPlacement place = mSettings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.SplitIfTooLong);
+                return place == LabelPlacement.PreferSeparateLine;
+            }
+            set {
+                if (value) {
+                    mSettings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                        LabelPlacement.PreferSeparateLine);
+                    LabelPlacementChanged();
+                    IsDirty = true;
+                }
+            }
+        }
+        private void LabelPlacementChanged() {
+            OnPropertyChanged(nameof(LabelPlacement_PreferSameLine));
+            OnPropertyChanged(nameof(LabelPlacement_SplitIfTooLong));
+            OnPropertyChanged(nameof(LabelPlacement_PreferSeparateLine));
         }
 
         private void Loaded_AsmConfig() {
@@ -965,15 +1066,44 @@ namespace SourceGen.WpfGui {
                     OnPropertyChanged();
                     bool doSave = true;
                     if (value.Length > 0) {
-                        char ch = value[0];
+                        char ch = value[0];     // disallow A-Za-z_
                         doSave = !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
                             ch == '_');
                     }
                     if (doSave) {
                         mSettings.SetString(AppSettings.FMT_NON_UNIQUE_LABEL_PREFIX, value);
                     } else {
+                        // Ignore the requested change.
                         // TODO(someday): add a validation rule
                         Debug.WriteLine("NOTE: quietly rejecting non-unique prefix '" +
+                            value + "'");
+                    }
+                    UpdateDisplayFormatQuickCombo();
+                    IsDirty = true;
+                }
+            }
+        }
+        private string mFullLineCommentDelim;
+        public string FullLineCommentDelim {
+            get { return mFullLineCommentDelim; }
+            set {
+                if (mFullLineCommentDelim != value) {
+                    mFullLineCommentDelim = value;
+                    OnPropertyChanged();
+                    bool doSave = true;
+                    if (value.Length == 0) {
+                        doSave = false;         // don't allow this to be blank
+                    } else {
+                        char ch = value[0];     // disallow A-Za-z_
+                        doSave = !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+                            ch == '_');
+                    }
+                    if (doSave) {
+                        mSettings.SetString(AppSettings.FMT_FULL_COMMENT_DELIM, value);
+                    } else {
+                        // Ignore the requested change.
+                        // TODO(someday): add a validation rule
+                        Debug.WriteLine("NOTE: quietly rejecting full-line comment delim '" +
                             value + "'");
                     }
                     UpdateDisplayFormatQuickCombo();
@@ -1078,14 +1208,15 @@ namespace SourceGen.WpfGui {
             public string OperandPrefixAbs { get; private set; }
             public string OperandPrefixLong { get; private set; }
             public string NonUniqueLabelPrefix { get; private set; }
+            public string FullLineCommentDelim { get; private set; }
             public string LocalVarPrefix { get; private set; }
             public bool CommaSeparatedBulkData { get; private set; }
             public ExpressionMode ExpressionStyle { get; private set; }
 
             public DisplayFormatPreset(int id, string name, string opcSuffixAbs,
                     string opcSuffixLong, string operPrefixAbs, string operPrefixLong,
-                    string nonUniqueLabelPrefix, string localVarPrefix, bool commaSepBulkData,
-                    ExpressionMode expStyle) {
+                    string nonUniqueLabelPrefix, string fullLineCommentDelim,
+                    string localVarPrefix, bool commaSepBulkData, ExpressionMode expStyle) {
                 Ident = id;
                 Name = name;
                 OpcodeSuffixAbs = opcSuffixAbs;
@@ -1093,6 +1224,7 @@ namespace SourceGen.WpfGui {
                 OperandPrefixAbs = operPrefixAbs;
                 OperandPrefixLong = operPrefixLong;
                 NonUniqueLabelPrefix = nonUniqueLabelPrefix;
+                FullLineCommentDelim = fullLineCommentDelim;
                 LocalVarPrefix = localVarPrefix;
                 CommaSeparatedBulkData = commaSepBulkData;
                 ExpressionStyle = expStyle;
@@ -1105,25 +1237,25 @@ namespace SourceGen.WpfGui {
             DisplayPresets = new DisplayFormatPreset[AssemblerList.Count + 2];
             DisplayPresets[0] = new DisplayFormatPreset(DisplayFormatPreset.ID_CUSTOM,
                 (string)FindResource("str_PresetCustom"), string.Empty, string.Empty,
-                string.Empty, string.Empty, string.Empty, string.Empty, true,
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, true,
                 ExpressionMode.Unknown);
             DisplayPresets[1] = new DisplayFormatPreset(DisplayFormatPreset.ID_DEFAULT,
                 (string)FindResource("str_PresetDefault"), string.Empty, "l", "a:", "f:",
-                string.Empty, string.Empty, true, ExpressionMode.Common);
+                string.Empty, ";", string.Empty, true, ExpressionMode.Common);
             for (int i = 0; i < AssemblerList.Count; i++) {
                 AssemblerInfo asmInfo = AssemblerList[i];
                 AsmGen.IGenerator gen = AssemblerInfo.GetGenerator(asmInfo.AssemblerId);
 
                 gen.GetDefaultDisplayFormat(out PseudoOp.PseudoOpNames unused,
                     out Asm65.Formatter.FormatConfig formatConfig);
-                formatConfig.Normalize();
 
                 DisplayPresets[i + 2] = new DisplayFormatPreset((int)asmInfo.AssemblerId,
-                    asmInfo.Name, formatConfig.mForceAbsOpcodeSuffix,
-                    formatConfig.mForceLongOpcodeSuffix, formatConfig.mForceAbsOperandPrefix,
-                    formatConfig.mForceLongOperandPrefix, formatConfig.mNonUniqueLabelPrefix,
-                    formatConfig.mLocalVariableLabelPrefix, formatConfig.mCommaSeparatedDense,
-                    formatConfig.mExpressionMode);
+                    asmInfo.Name, formatConfig.ForceAbsOpcodeSuffix,
+                    formatConfig.ForceLongOpcodeSuffix, formatConfig.ForceAbsOperandPrefix,
+                    formatConfig.ForceLongOperandPrefix, formatConfig.NonUniqueLabelPrefix,
+                    formatConfig.FullLineCommentDelimiterBase,
+                    formatConfig.LocalVariableLabelPrefix, formatConfig.CommaSeparatedDense,
+                    formatConfig.ExprMode);
             }
         }
 
@@ -1144,6 +1276,8 @@ namespace SourceGen.WpfGui {
                 mSettings.GetString(AppSettings.FMT_OPERAND_PREFIX_LONG, string.Empty);
             NonUniqueLabelPrefix =
                 mSettings.GetString(AppSettings.FMT_NON_UNIQUE_LABEL_PREFIX, string.Empty);
+            FullLineCommentDelim =
+                mSettings.GetString(AppSettings.FMT_FULL_COMMENT_DELIM, ";");
             LocalVarPrefix =
                 mSettings.GetString(AppSettings.FMT_LOCAL_VARIABLE_PREFIX, string.Empty);
 
@@ -1225,6 +1359,7 @@ namespace SourceGen.WpfGui {
             OperandPrefixAbs = preset.OperandPrefixAbs;
             OperandPrefixLong = preset.OperandPrefixLong;
             NonUniqueLabelPrefix = preset.NonUniqueLabelPrefix;
+            FullLineCommentDelim = preset.FullLineCommentDelim;
             LocalVarPrefix = preset.LocalVarPrefix;
             CommaSeparatedBulkData = preset.CommaSeparatedBulkData;
 
@@ -1251,6 +1386,7 @@ namespace SourceGen.WpfGui {
                         OperandPrefixAbs == preset.OperandPrefixAbs &&
                         OperandPrefixLong == preset.OperandPrefixLong &&
                         NonUniqueLabelPrefix == preset.NonUniqueLabelPrefix &&
+                        FullLineCommentDelim == preset.FullLineCommentDelim &&
                         LocalVarPrefix == preset.LocalVarPrefix &&
                         CommaSeparatedBulkData == preset.CommaSeparatedBulkData &&
                         expMode == preset.ExpressionStyle) {
@@ -1310,6 +1446,7 @@ namespace SourceGen.WpfGui {
                 new TextBoxPropertyMap(uninitTextBox, "Uninit"),
                 new TextBoxPropertyMap(junkTextBox, "Junk"),
                 new TextBoxPropertyMap(alignTextBox, "Align"),
+                new TextBoxPropertyMap(binaryIncludeTextBox, "BinaryInclude"),
                 new TextBoxPropertyMap(strGenericTextBox, "StrGeneric"),
                 new TextBoxPropertyMap(strReverseTextBox, "StrReverse"),
                 new TextBoxPropertyMap(strLen8TextBox, "StrLen8"),

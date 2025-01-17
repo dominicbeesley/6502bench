@@ -152,7 +152,7 @@ namespace SourceGen {
 
 
         /// <summary>
-        /// The contents of the 65xx data file.
+        /// The contents of the 65xx data file.  Do not modify.
         /// </summary>
         public byte[] FileData { get { return mFileData; } }
         private byte[] mFileData;
@@ -1438,17 +1438,19 @@ namespace SourceGen {
                         attr.OperandAddress >= 0 && attr.OperandOffset < 0) {
                     // This is an instruction that hasn't been explicitly formatted.  It
                     // has an operand address, but not an offset, meaning it's a reference
-                    // to an address outside the scope of the file. See if it has a
-                    // platform symbol definition.
+                    // to an address outside the scope of the file -or- a reference to an address
+                    // region that we're not supposed to interact with (DisallowInbound on it
+                    // or DisallowOutbound on us). See if it has a platform symbol definition,
+                    // or perhaps an address region pre-label.
                     //
                     // It might seem unwise to examine the full symbol table, because it has
                     // non-project non-platform symbols in it.  However, any matching user
-                    // labels would have been applied already.  Also, we want to ensure that
-                    // conflicting user labels take precedence, e.g. creating a user label "COUT"
-                    // will prevent a platform symbol with the same name from being visible.
-                    // Using the full symbol table is potentially a tad less efficient than
-                    // looking for a match exclusively in project/platform symbols, but it's
-                    // the correct thing to do.
+                    // labels would have been applied already (unless blocked by address region
+                    // isolation).  Also, we want to ensure that conflicting user labels take
+                    // precedence, e.g. creating a user label "COUT" will prevent a platform
+                    // symbol with the same name from being visible.  Using the full symbol
+                    // table is potentially a tad less efficient than looking for a match
+                    // exclusively in project/platform symbols, but it's the correct thing to do.
                     OpDef op = CpuDef.GetOpDef(FileData[offset]);
                     accType = op.MemEffect;
                     address = attr.OperandAddress;
@@ -1493,10 +1495,24 @@ namespace SourceGen {
                     if (sym == null && checkNearby && (address & 0xffff) < 0xffff &&
                             address > 0x0000ff) {
                         sym = SymbolTable.FindNonVariableByAddress(address + 1, accType);
-                        if (sym != null && sym.SymbolSource != Symbol.Source.Project &&
-                                sym.SymbolSource != Symbol.Source.Platform) {
-                            Debug.WriteLine("Applying non-platform in GeneratePlatform: " + sym);
-                            // should be okay to do this
+                    }
+                    if (sym != null && sym.SymbolSource != Symbol.Source.Project &&
+                            sym.SymbolSource != Symbol.Source.Platform &&
+                            sym.SymbolSource != Symbol.Source.AddrPreLabel) {
+                        // If we matched to something other than a project/platform symbol or
+                        // pre-label (which are expected to be outside the file area), make sure
+                        // we're not doing an invalid cross-region reference.
+                        if (AddrMap.AddressToOffset(offset, sym.Value) >= 0) {
+                            Debug.WriteLine("GeneratePlatform applying non-platform at +" +
+                                offset.ToString("x6") + ": " + sym);
+                        } else {
+                            Debug.WriteLine("GeneratePlatform not applying at +" +
+                                offset.ToString("x6") + ": " + sym);
+                            // Do a secondary scan, looking only at project/platform/pre-labels.
+                            sym = SymbolTable.FindProjPlatPreByAddress(address, accType);
+                            if (sym != null) {
+                                Debug.WriteLine(" ...found matching proj/plat: " + sym);
+                            }
                         }
                     }
 
@@ -1534,7 +1550,7 @@ namespace SourceGen {
             //
             // We want to tag both.  So if "LDA $1000" becomes "LDA label-2", we want to
             // add a numeric reference to the code at $1000, and a symbolic reference to the
-            // labe at $1002, that point back to the LDA instruction.  These are presented
+            // label at $1002, that point back to the LDA instruction.  These are presented
             // slightly differently to the user.  For a symbolic reference with no adjustment,
             // we don't add the (redundant) numeric reference.
             //
@@ -1631,6 +1647,12 @@ namespace SourceGen {
                                 adj = mAnattribs[symOffset].Address -
                                     mAnattribs[operandOffset].Address;
                             }
+
+                            // TODO: to handle pre-labels correctly, we need to associate an
+                            // XrefSet with an address region, and add the reference there.  We
+                            // currently attach it to the offset of the first byte in the region,
+                            // which means you don't see anything in the references window when
+                            // the pre-label line is selected.
 
                             AddXref(symOffset, new XrefSet.Xref(offset, true, xrefType, accType,
                                 accessFlags, adj));
@@ -2089,7 +2111,6 @@ namespace SourceGen {
         /// <summary>
         /// Returns the next redo operation, and moves the pointer to the next item.
         /// </summary>
-        /// <returns></returns>
         public ChangeSet PopRedoSet() {
             if (!CanRedo) {
                 throw new Exception("Can't redo");

@@ -24,6 +24,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -33,6 +34,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>Res\SourceGenIcon.ico</ApplicationIcon>
@@ -72,6 +74,7 @@
     <Compile Include="AsmGen\AssemblerConfig.cs" />
     <Compile Include="AsmGen\AssemblerInfo.cs" />
     <Compile Include="AsmGen\AssemblerVersion.cs" />
+    <Compile Include="AsmGen\BinaryInclude.cs" />
     <Compile Include="AsmGen\GenCommon.cs" />
     <Compile Include="AsmGen\IAssembler.cs" />
     <Compile Include="AsmGen\IGenerator.cs" />
@@ -79,6 +82,7 @@
     <Compile Include="DailyTips.cs" />
     <Compile Include="Exporter.cs" />
     <Compile Include="FormattedOperandCache.cs" />
+    <Compile Include="LabelFileGenerator.cs" />
     <Compile Include="LocalVariableLookup.cs" />
     <Compile Include="MessageList.cs" />
     <Compile Include="Sgec.cs" />
@@ -188,6 +192,9 @@
     <Compile Include="WpfGui\FormatAddressTable.xaml.cs">
       <DependentUpon>FormatAddressTable.xaml</DependentUpon>
     </Compile>
+    <Compile Include="WpfGui\GenerateLabels.xaml.cs">
+      <DependentUpon>GenerateLabels.xaml</DependentUpon>
+    </Compile>
     <Compile Include="WpfGui\GotoBox.xaml.cs">
       <DependentUpon>GotoBox.xaml</DependentUpon>
     </Compile>
@@ -231,6 +238,9 @@
     <Compile Include="UndoableChange.cs" />
     <Compile Include="DisplayListSelection.cs" />
     <Compile Include="WeakSymbolRef.cs" />
+    <Compile Include="WpfGui\RecoveryChoice.xaml.cs">
+      <DependentUpon>RecoveryChoice.xaml</DependentUpon>
+    </Compile>
     <Compile Include="WpfGui\ShowWireframeAnimation.xaml.cs">
       <DependentUpon>ShowWireframeAnimation.xaml</DependentUpon>
     </Compile>
@@ -413,6 +423,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="WpfGui\GenerateLabels.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="WpfGui\GotoBox.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -462,6 +476,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Res\Strings.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="WpfGui\RecoveryChoice.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

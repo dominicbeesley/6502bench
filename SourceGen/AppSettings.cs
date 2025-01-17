@@ -62,6 +62,7 @@ namespace SourceGen {
         public const string FMT_OPERAND_PREFIX_ABS = "fmt-operand-prefix-abs";
         public const string FMT_OPERAND_PREFIX_LONG = "fmt-operand-prefix-long";
         public const string FMT_EXPRESSION_MODE = "fmt-expression-mode";
+        public const string FMT_FULL_COMMENT_DELIM = "fmt-full-comment-delim";
 
         public const string FMT_PSEUDO_OP_NAMES = "fmt-pseudo-op-names";
         public const string FMT_CHAR_DELIM = "fmt-char-delim";
@@ -74,7 +75,9 @@ namespace SourceGen {
 
         public const string CLIP_LINE_FORMAT = "clip-line-format";
 
+        // Project open/save settings.
         public const string PRVW_RECENT_PROJECT_LIST = "prvw-recent-project-list";
+        public const string PROJ_AUTO_SAVE_INTERVAL = "proj-auto-save-interval";
 
         public const string SKIN_DARK_COLOR_SCHEME = "skin-dark-color-scheme";
 
@@ -124,8 +127,13 @@ namespace SourceGen {
         // Source generation settings.
         public const string SRCGEN_DEFAULT_ASM = "srcgen-default-asm";
         public const string SRCGEN_ADD_IDENT_COMMENT = "srcgen-add-ident-comment";
-        public const string SRCGEN_LONG_LABEL_NEW_LINE = "srcgen-long-label-new-line";
+        public const string SRCGEN_LABEL_NEW_LINE = "srcgen-label-new-line";
         public const string SRCGEN_SHOW_CYCLE_COUNTS = "srcgen-show-cycle-counts";
+        public const string SRCGEN_OMIT_IMPLIED_ACC_OPERAND = "srcgen-omit-implied-acc-operand";
+
+        // Label file generation settings.
+        public const string LABGEN_FORMAT = "labgen-format";
+        public const string LABGEN_INCLUDE_AUTO = "labgen-include-auto";
 
         // Assembler settings prefix
         public const string ASM_CONFIG_PREFIX = "asm-config-";
@@ -287,21 +295,20 @@ namespace SourceGen {
         /// <summary>
         /// Retrieves an enumerated value setting.
         /// </summary>
+        /// <typeparam name="T">Enumerated type.</typeparam>
         /// <param name="name">Setting name.</param>
-        /// <param name="enumType">Enum type that the value is part of.</param>
         /// <param name="defaultValue">Setting default value.</param>
         /// <returns>The value found, or the default value if no setting with the specified
-        ///   name exists, or the stored value is not a member of the specified enumerated
-        ///   type.</returns>
-        public int GetEnum(string name, Type enumType, int defaultValue) {
+        ///   name exists, or the stored value is not a member of the enumeration.</returns>
+        public T GetEnum<T>(string name, T defaultValue) {
             if (!mSettings.TryGetValue(name, out string valueStr)) {
                 return defaultValue;
             }
             try {
-                object o = Enum.Parse(enumType, valueStr);
-                return (int)o;
+                object o = Enum.Parse(typeof(T), valueStr);
+                return (T)o;
             } catch (ArgumentException ae) {
-                Debug.WriteLine("Failed to parse " + valueStr + " (enum " + enumType + "): " +
+                Debug.WriteLine("Failed to parse '" + valueStr + "' (enum " + typeof(T) + "): " +
                     ae.Message);
                 return defaultValue;
             }
@@ -310,14 +317,20 @@ namespace SourceGen {
         /// <summary>
         /// Sets an enumerated setting.
         /// </summary>
+        /// <remarks>
+        /// The value is output to the settings file as a string, rather than an integer, allowing
+        /// the correct handling even if the enumerated values are renumbered.
+        /// </remarks>
+        /// <typeparam name="T">Enumerated type.</typeparam>
         /// <param name="name">Setting name.</param>
-        /// <param name="enumType">Enum type.</param>
         /// <param name="value">Setting value (integer enum index).</param>
-        public void SetEnum(string name, Type enumType, int value) {
-            string newVal = Enum.GetName(enumType, value);
+        public void SetEnum<T>(string name, T value) {
+            if (value == null) {
+                throw new NotImplementedException("Can't handle a null-valued enum type");
+            }
+            string newVal = Enum.GetName(typeof(T), value);
             if (newVal == null) {
-                // Shouldn't be possible if an enum value of the correct type is passed in.
-                Debug.WriteLine("Unable to get enum name type=" + enumType + " value=" + value);
+                Debug.WriteLine("Unable to get enum name type=" + typeof(T) + " value=" + value);
                 return;
             }
             if (!mSettings.TryGetValue(name, out string oldValue) || oldValue != newVal) {

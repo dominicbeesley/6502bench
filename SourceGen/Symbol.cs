@@ -23,8 +23,8 @@ namespace SourceGen {
     /// </summary>
     public class Symbol {
         public const char UNCERTAIN_CHAR = '?';
+        public const char UNIQUE_TAG_CHAR = '\u00a7';   // SECTION SIGN
         private const char NO_ANNO_CHAR = '\ufffd';     // REPLACEMENT CHARACTER '�'
-        private const char UNIQUE_TAG_CHAR = '\u00a7';  // SECTION SIGN
         private const int NON_UNIQUE_LEN = 7;           // NON_UNIQUE_CHAR + 6 hex digits
 
         /// <summary>
@@ -84,6 +84,7 @@ namespace SourceGen {
         /// <remarks>
         /// Non-unique labels have extra stuff at the end to make them unique.  That is
         /// included here, so that the Label field is still viable as a unique identifier.
+        /// Use <see cref="LabelWithoutTag"/> to get just the label.
         /// </remarks>
         public string Label { get; private set; }
 

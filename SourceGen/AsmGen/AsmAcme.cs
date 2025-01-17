@@ -57,14 +57,19 @@ namespace SourceGen.AsmGen {
         public int StartOffset { get { return 0; } }
 
         /// <summary>
+        /// List of binary include sections found in the project.
+        /// </summary>
+        private List<BinaryInclude.Excision> mBinaryIncludes = new List<BinaryInclude.Excision>();
+
+        /// <summary>
         /// Working directory, i.e. where we write our output file(s).
         /// </summary>
         private string mWorkDirectory;
 
         /// <summary>
-        /// If set, long labels get their own line.
+        /// Influences whether labels are put on their own line.
         /// </summary>
-        private bool mLongLabelNewLine;
+        private GenCommon.LabelPlacement mLabelNewLine;
 
         /// <summary>
         /// Output column widths.
@@ -139,6 +144,7 @@ namespace SourceGen.AsmGen {
                 { "Uninit", "!skip" },
                 //Junk
                 { "Align", "!align" },
+                { "BinaryInclude", "!binary" },
                 { "StrGeneric", "!text" },       // can use !xor for high ASCII
                 //StrReverse
                 //StrNullTerm
@@ -198,7 +204,8 @@ namespace SourceGen.AsmGen {
             mFileNameBase = fileNameBase;
             Settings = settings;
 
-            mLongLabelNewLine = Settings.GetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, false);
+            mLabelNewLine = Settings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                    GenCommon.LabelPlacement.SplitIfTooLong);
 
             AssemblerConfig config = AssemblerConfig.GetConfig(settings,
                 AssemblerInfo.Id.Acme);
@@ -223,28 +230,27 @@ namespace SourceGen.AsmGen {
         /// Configures the assembler-specific format items.
         /// </summary>
         private void SetFormatConfigValues(ref Formatter.FormatConfig config) {
-            config.mSuppressImpliedAcc = true;
+            config.SuppressImpliedAcc = true;       // implied acc not allowed
 
-            config.mOperandWrapLen = 64;
-            config.mForceDirectOpcodeSuffix = "+1";
-            config.mForceAbsOpcodeSuffix = "+2";
-            config.mForceLongOpcodeSuffix = "+3";
-            config.mForceDirectOperandPrefix = string.Empty;
-            config.mForceAbsOperandPrefix = string.Empty;
-            config.mForceLongOperandPrefix = string.Empty;
-            config.mLocalVariableLabelPrefix = ".";
-            config.mEndOfLineCommentDelimiter = ";";
-            config.mFullLineCommentDelimiterBase = ";";
-            config.mBoxLineCommentDelimiter = ";";
-            config.mNonUniqueLabelPrefix = "@";
-            config.mCommaSeparatedDense = false;
-            config.mExpressionMode = Formatter.FormatConfig.ExpressionMode.Common;
+            config.OperandWrapLen = 64;
+            config.ForceDirectOpcodeSuffix = "+1";
+            config.ForceAbsOpcodeSuffix = "+2";
+            config.ForceLongOpcodeSuffix = "+3";
+            config.ForceDirectOperandPrefix = string.Empty;
+            config.ForceAbsOperandPrefix = string.Empty;
+            config.ForceLongOperandPrefix = string.Empty;
+            config.LocalVariableLabelPrefix = ".";
+            config.EndOfLineCommentDelimiter = ";";
+            config.FullLineCommentDelimiterBase = ";";
+            config.NonUniqueLabelPrefix = "@";
+            config.CommaSeparatedDense = false;
+            config.ExprMode = Formatter.FormatConfig.ExpressionMode.Common;
 
             Formatter.DelimiterSet charSet = new Formatter.DelimiterSet();
             charSet.Set(CharEncoding.Encoding.Ascii, Formatter.SINGLE_QUOTE_DELIM);
             charSet.Set(CharEncoding.Encoding.HighAscii,
                 new Formatter.DelimiterDef(string.Empty, '\'', '\'', " | $80"));
-            config.mCharDelimiters = charSet;
+            config.CharDelimiters = charSet;
         }
 
         // IGenerator
@@ -279,14 +285,14 @@ namespace SourceGen.AsmGen {
                 mOutStream = sw;
 
                 if (Settings.GetBool(AppSettings.SRCGEN_ADD_IDENT_COMMENT, false)) {
-                    OutputLine(SourceFormatter.FullLineCommentDelimiter +
+                    OutputLine(SourceFormatter.FullLineCommentDelimiterPlus +
                         string.Format(Res.Strings.GENERATED_FOR_VERSION_FMT,
                         "acme", mAsmVersion, AsmAcme.OPTIONS));
                 }
 
                 if (HasNonZeroBankCode()) {
                     // don't try
-                    OutputLine(SourceFormatter.FullLineCommentDelimiter +
+                    OutputLine(SourceFormatter.FullLineCommentDelimiterPlus +
                         "ACME can't handle 65816 code that lives outside bank zero");
                     int firstAddr = Project.AddrMap.OffsetToAddress(0);
                     AddressMap.AddressRegion fakeRegion = new AddressMap.AddressRegion(0,
@@ -302,7 +308,7 @@ namespace SourceGen.AsmGen {
             }
             mOutStream = null;
 
-            return new GenerationResults(pathNames, string.Empty);
+            return new GenerationResults(pathNames, string.Empty, mBinaryIncludes);
         }
 
         /// <summary>
@@ -481,6 +487,12 @@ namespace SourceGen.AsmGen {
                         opcodeStr = operandStr = null;
                         OutputDenseHex(offset, length, labelStr, commentStr);
                     }
+                    break;
+                case FormatDescriptor.Type.BinaryInclude:
+                    opcodeStr = sDataOpNames.BinaryInclude;
+                    string biPath = BinaryInclude.ConvertPathNameFromStorage(dfd.Extra);
+                    operandStr = '"' + biPath + '"';
+                    mBinaryIncludes.Add(new BinaryInclude.Excision(offset, length, biPath));
                     break;
                 case FormatDescriptor.Type.StringGeneric:
                 case FormatDescriptor.Type.StringReverse:
@@ -663,11 +675,13 @@ namespace SourceGen.AsmGen {
         // IGenerator
         public void OutputLine(string label, string opcode, string operand, string comment) {
             // Break the line if the label is long and it's not a .EQ directive.
-            if (!string.IsNullOrEmpty(label) &&
+            if (!string.IsNullOrEmpty(label) && !string.IsNullOrEmpty(opcode) &&
                     !string.Equals(opcode, sDataOpNames.EquDirective,
                         StringComparison.InvariantCultureIgnoreCase)) {
 
-                if (mLongLabelNewLine && label.Length >= mColumnWidths[0]) {
+                if (mLabelNewLine == GenCommon.LabelPlacement.PreferSeparateLine ||
+                        (mLabelNewLine == GenCommon.LabelPlacement.SplitIfTooLong &&
+                            label.Length >= mColumnWidths[0])) {
                     mOutStream.WriteLine(label);
                     label = string.Empty;
                 }

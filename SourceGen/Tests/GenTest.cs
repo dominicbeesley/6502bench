@@ -309,6 +309,26 @@ namespace SourceGen.Tests {
                     //continue;
                 }
 
+                // Generate binary includes.  These are not verified in the "expected source"
+                // section because we'll do the necessary check in the binary diff.
+                if (!BinaryInclude.PrepareList(genResults.BinaryIncludes, workDir,
+                        out string failMsg)) {
+                    ReportErrMsg("Failed processing binary includes: " + failMsg);
+                    ReportProgress("\r\n");
+                    didFail = true;
+                } else {
+                    foreach (BinaryInclude.Excision exc in genResults.BinaryIncludes) {
+                        if (!BinaryInclude.GenerateOutputFile(exc, project.FileData,
+                                out string failMsg2)) {
+                            ReportErrMsg("Failed processing binary include at +" +
+                                exc.Offset.ToString("x6") + ": " + failMsg2);
+                            ReportProgress("\r\n");
+                            didFail = true;
+                            break;
+                        }
+                    }
+                }
+
                 // Assemble code.
                 ReportProgress("  " + asmId.ToString() + " assemble...");
                 IAssembler asm = AssemblerInfo.GetAssembler(asmId);
@@ -430,10 +450,13 @@ namespace SourceGen.Tests {
 
             // Don't break lines with long labels.  That way we can redefine "long"
             // without breaking our tests.  (This is purely cosmetic.)
-            settings.SetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, false);
+            settings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                GenCommon.LabelPlacement.PreferSameLine);
 
             // This could be on or off.  Off seems less distracting.
             settings.SetBool(AppSettings.SRCGEN_SHOW_CYCLE_COUNTS, false);
+
+            settings.SetBool(AppSettings.SRCGEN_OMIT_IMPLIED_ACC_OPERAND, false);
 
             IEnumerator<AssemblerInfo> iter = AssemblerInfo.GetInfoEnumerator();
             while (iter.MoveNext()) {
@@ -455,17 +478,23 @@ namespace SourceGen.Tests {
         }
 
         /// <summary>
-        /// Applies app setting overrides that were specified in the project settings.
+        /// Applies app setting overrides that were specified in the project properties.
         /// </summary>
         private void ApplyProjectSettings(AppSettings settings, DisasmProject project) {
             // We could probably make this a more general mechanism, but that would strain
             // things a bit, since we need to know the settings name, bool/int/string, and
             // desired value.  Easier to just have a set of named features.
             const string ENABLE_LABEL_NEWLINE = "__ENABLE_LABEL_NEWLINE";
+            const string ENABLE_ALL_LABEL_NEWLINE = "__ENABLE_ALL_LABEL_NEWLINE";
             const string ENABLE_CYCLE_COUNTS = "__ENABLE_CYCLE_COUNTS";
 
             if (project.ProjectProps.ProjectSyms.ContainsKey(ENABLE_LABEL_NEWLINE)) {
-                settings.SetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, true);
+                settings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                    GenCommon.LabelPlacement.SplitIfTooLong);
+            }
+            if (project.ProjectProps.ProjectSyms.ContainsKey(ENABLE_ALL_LABEL_NEWLINE)) {
+                settings.SetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                    GenCommon.LabelPlacement.PreferSeparateLine);
             }
             if (project.ProjectProps.ProjectSyms.ContainsKey(ENABLE_CYCLE_COUNTS)) {
                 settings.SetBool(AppSettings.SRCGEN_SHOW_CYCLE_COUNTS, true);
@@ -597,8 +626,8 @@ namespace SourceGen.Tests {
         /// Removes the contents of a temporary work directory.  Only files that we believe
         /// to be products of the generator or assembler are removed.
         /// </summary>
-        /// <param name="workDir"></param>
-        /// <param name="testNum"></param>
+        /// <param name="workDir">Full pathname of work directory.</param>
+        /// <param name="testNum">Test number, used to evaluate files for removal.</param>
         private void ScrubWorkDirectory(string workDir, int testNum) {
             string checkString = testNum.ToString();
             if (checkString.Length != 5) {
@@ -606,6 +635,20 @@ namespace SourceGen.Tests {
                 return;
             }
 
+            // Remove any subdirectories that match the pattern, e.g. for binary includes.
+            foreach (string pathName in Directory.EnumerateDirectories(workDir)) {
+                string fileName = Path.GetFileName(pathName);
+                if (fileName.Contains(checkString)) {
+                    ScrubWorkDirectory(pathName, testNum);
+                    try {
+                        Directory.Delete(pathName);
+                    } catch (Exception ex) {
+                        ReportErrMsg("unable to remove dir '" + fileName + "': " + ex.Message);
+                    }
+                }
+            }
+
+            // Remove all matching files.
             foreach (string pathName in Directory.EnumerateFiles(workDir)) {
                 bool doRemove = false;
                 string fileName = Path.GetFileName(pathName);

@@ -19,7 +19,7 @@ the target assembler, will recreate the original data file exactly.
 Every assembler is different, so support must be added to SourceGen
 for each.</p>
 <p>The generation / assembly dialog can be opened with
-<samp>File &gt; Assemble</samp>.</p>
+<samp>File &gt; Generate Assembly</samp>.</p>
 <p>If you want to show code to others, perhaps by adding a page to
 your web site, you can "export" the formatted code as text or HTML.
 This is explained in more detail <a href="#export-source">below</a>.
@@ -385,7 +385,7 @@ clipboard and pasting them into a text file, except that you have greater
 control over which columns are included.  The HTML version is augmented
 with links and (optionally) images.</p>
 
-<p>Use File &gt; Export to open the export dialog.  You have several
+<p>Use <samp>File &gt; Export</samp> to open the export dialog.  You have several
 options:</p>
 <ul>
   <li><b>Include only selected lines</b>.  This allows you to choose between
@@ -424,6 +424,13 @@ will be written to the same directory.</p>
 
 <p>All output uses UTF-8 encoding.  Filenames of HTML files will have '#'
 replaced with '_' to make linking easier.</p>
+
+
+<h2 id="generate-labels">Generating Label Files</h2>
+<p>Some debuggers allow the import of labels associated with addresses.
+To generate such a file, use <samp>File &gt; Generate Label File</samp>.</p>
+<p>Select the desired output format (currently only VICE label commands
+are supported), and whether or not to include auto-generated labels.</p>
 
 </div>
 

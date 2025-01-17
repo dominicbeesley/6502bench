@@ -1,8 +1,8 @@
 ﻿### 6502bench SourceGen dis65 v1.0 ###
 {
-"_ContentVersion":5,
-"FileDataLength":98,
-"FileDataCrc32":-80207687,
+"_ContentVersion":6,
+"FileDataLength":169,
+"FileDataCrc32":-1449180249,
 "ProjectProps":{
 "CpuName":"6502",
 "IncludeUndocumentedInstr":false,
@@ -28,6 +28,8 @@
 "Addr":4096,
 "Length":-1024,
 "PreLabel":"",
+"DisallowInward":false,
+"DisallowOutward":false,
 "IsRelative":false}],
 "TypeHints":[{
 "Low":0,
@@ -41,97 +43,175 @@
 "2":"\u0026another comment with \u0026\u0026s!",
 "8":"comment ending in backslash\\",
 "10":"comment, with, commas \\\\ \\\" \\/ \\\\\\",
-"30":"Pull in plataddr to see the comment on the platform file entry.",
-"34":"Comment at the end of a lengthy bulk hex item might overflow various things, but could be wrapped."},
+"34":"Comment at the end of a lengthy bulk hex item might overflow various things, but could be wrapped.",
+"98":"Pull in plataddr to see the comment on the platform file entry."},
 
 "LongComments":{
 "-2147483647":{
 "Text":"Old school boxed output header.  Brk\r\nmultiple lines yay.  How about a hy-phenated word?\r\nLooonglonglonglonglonglonglonglonglonglonglongword.\r\n*\r\nThrow in a line divider.  These aren\u0027t:\r\n*!\r\n *\r\n\u0026XYZ\r\n\r\n",
+"IsFancy":false,
 "BoxMode":true,
 "MaxWidth":40,
 "BackgroundColor":0},
 
 "0":{
 "Text":"Short, unboxed comment here!!  Two spaces after.  More hyp-hens?\r\n",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":30,
 "BackgroundColor":0},
 
 "2":{
 "Text":"Comment rulers can be helpful in findin the edges of notes.  Comments are hyph-enatingly fun.  Like the note, this goes out to 80 columns.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":0},
 
 "4":{
 "Text":"Down to 64 columns this time.  Why 64?  Why not 64.  A rose, by any other name, would break the line at the same place.  Or hy-phen split.\r\n",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":64,
 "BackgroundColor":0},
 
 "6":{
 "Text":"Ah, the classic 40-column limitation... brings back memories.  Of, you know, h-yphenated things.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":40,
 "BackgroundColor":0},
 
 "8":{
 "Text":"Thirty columns.  \u0027cause forty felt like too many.  Oh, hyp-henation!",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":30,
 "BackgroundColor":0},
 
 "10":{
 "Text":"Short box comment, 80 cols.",
+"IsFancy":false,
 "BoxMode":true,
 "MaxWidth":80,
 "BackgroundColor":0},
 
 "12":{
 "Text":"\r\nChoppy\r\n\r\nbox\r\n\r\ncomment\r\n\r\n64 cols\r\n\r\n",
+"IsFancy":false,
 "BoxMode":true,
 "MaxWidth":64,
 "BackgroundColor":0},
 
 "14":{
 "Text":"Some non-ASCII stuff:\r\n†•�␇\r\n(right side of box looks pushed over on-screen because font isn\u0027t fully mono)",
+"IsFancy":false,
 "BoxMode":true,
 "MaxWidth":64,
 "BackgroundColor":0},
 
 "16":{
 "Text":"Specific line break case at end  of.  Sentence.\r\nAlternate version for semicolon zz.  Output.\r\n\r\nSame thing but with three spaces zz.   Three!\r\nAgain with the three spces between.   Things.\r\n\r\nTry to make it the very last thing..  ",
+"IsFancy":false,
 "BoxMode":true,
 "MaxWidth":40,
+"BackgroundColor":0},
+
+"101":{
+"Text":"\r\nA trivial fancy comment.  Nothing special about it at all.  Go on about your business.\r\n\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"103":{
+"Text":"Check for surrogate pair splitting. 1/2 should be split:\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzxxxxxxxxxxxxxxxxxxx12x\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzUnicode_Character_“😊”_(U+1F60A)",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"105":{
+"Text":"Test \\[width].  This line has the default width of 80, so things break way out here.\r\nLines with width=8, width=10, and width=*: [width=8]012345678901234567890123456789[width=10]012345678901234567890123456789[width=*]012345678901234567890123456789\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"109":{
+"Text":"[br]\r\nTesting \\[br] blank lines.[br][br]\r\n[br]three above, one below\r\n[br]\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"107":{
+"Text":"Test \\[hr] and \\[hr char=\u0027#\u0027].[hr][hr]x[hr char=\u0027#\u0027]y",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"111":{
+"Text":"[hr]\r\nFull width box, with default char.\r\n[box]stuff in the box zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz aaaa bbb    cccc[/box]\r\n[box char=\u0027;\u0027]Explicit char=\u0027;\u0027.[/box]\r\nNow with reduced width and char=\u0027#\u0027.\r\n[width=10][box char=\u0027#\u0027]A much smaller box.[/box]\r\n[width=*]\r\n[box char=\u0027*\u0027]\r\nWidth changes are illegal inside[width=20]a box (with char=\u0027*\u0027).  Word wrap at the end.\r\n[/box]",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"113":{
+"Text":"Simple URL [url]https://example.com/[/url], fancier URL [url=https://example.com/]link text[/url].\r\n[box]In a box [url]https://example.com/[/url].[/box]\r\n\r\nA URL may not [url]have a [box]...[/box] tag[/url] inside.\r\nNor may it have [url]an [hr], [br], or [width=2] tag[/url].\r\nLine wrapping the contents of a URL link area should work [url=https://example.com]+this is the area inside+[/url].\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"115":{
+"Text":"[BOX]ALL CAPS [URL=HTTPS://EXAMPLE.COM/]FOR EVERYTHING[/URL][HR][/BOX]\r\n[BR]\r\n[WIDTH=10]SHORT LINES\r\n[BOX CHAR=\u0027X\u0027]BOXED[HR CHAR=\u0027-\u0027]STUFF[/BOX]\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
+"BackgroundColor":0},
+
+"117":{
+"Text":"[width=20]\r\nTest some folding with \\[width=20].\r\n01234567890123456789\r\n012345678901234567-89\r\n0123456789012345678 9\r\n 1234567890123456789\r\n-1234567890123456789\r\n -234567890123456789\r\n",
+"IsFancy":true,
+"BoxMode":false,
+"MaxWidth":80,
 "BackgroundColor":0}},
 
 "Notes":{
 "0":{
 "Text":"And now, a note.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":-7278960},
 
 "2":{
 "Text":"Another note, this one longer.  We don\u0027t get to see where the lines break, which makes it harder to hit the edges.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":-5383962},
 
 "4":{
 "Text":"Another day, another note.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":-256},
 
 "6":{
 "Text":"Take note!",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":-18751},
 
 "8":{
 "Text":"Duly noted.",
+"IsFancy":false,
 "BoxMode":false,
 "MaxWidth":80,
 "BackgroundColor":-23296}},
@@ -149,7 +229,8 @@
 "Length":64,
 "Format":"Dense",
 "SubFormat":"None",
-"SymbolRef":null}},
+"SymbolRef":null,
+"Extra":null}},
 
 "LvTables":{
 },

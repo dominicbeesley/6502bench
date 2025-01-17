@@ -52,14 +52,19 @@ namespace SourceGen.AsmGen {
         public int StartOffset { get { return 0; } }
 
         /// <summary>
+        /// List of binary include sections found in the project.
+        /// </summary>
+        private List<BinaryInclude.Excision> mBinaryIncludes = new List<BinaryInclude.Excision>();
+
+        /// <summary>
         /// Working directory, i.e. where we write our output file(s).
         /// </summary>
         private string mWorkDirectory;
 
         /// <summary>
-        /// If set, long labels get their own line.
+        /// Influences whether labels are put on their own line.
         /// </summary>
-        private bool mLongLabelNewLine;
+        private GenCommon.LabelPlacement mLabelNewLine;
 
         /// <summary>
         /// Output column widths.
@@ -138,6 +143,8 @@ namespace SourceGen.AsmGen {
                 { "Dense", ".byte" },           // really just just comma-separated bytes
                 { "Uninit", ".res" },
                 //Junk
+                //Align
+                { "BinaryInclude", ".incbin" },
                 { "StrGeneric", ".byte" },
                 //StrReverse
                 { "StrNullTerm", ".asciiz" },
@@ -188,7 +195,8 @@ namespace SourceGen.AsmGen {
             mFileNameBase = fileNameBase;
             Settings = settings;
 
-            mLongLabelNewLine = Settings.GetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, false);
+            mLabelNewLine = Settings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                    GenCommon.LabelPlacement.SplitIfTooLong);
 
             AssemblerConfig config = AssemblerConfig.GetConfig(settings,
                 AssemblerInfo.Id.Cc65);
@@ -199,25 +207,24 @@ namespace SourceGen.AsmGen {
         /// Configures the assembler-specific format items.
         /// </summary>
         private void SetFormatConfigValues(ref Formatter.FormatConfig config) {
-            config.mOperandWrapLen = 64;
-            config.mForceDirectOpcodeSuffix = string.Empty;
-            config.mForceAbsOpcodeSuffix = string.Empty;
-            config.mForceLongOpcodeSuffix = string.Empty;
-            config.mForceDirectOperandPrefix = "z:";    // zero
-            config.mForceAbsOperandPrefix = "a:";       // absolute
-            config.mForceLongOperandPrefix = "f:";      // far
-            config.mEndOfLineCommentDelimiter = ";";
-            config.mFullLineCommentDelimiterBase = ";";
-            config.mBoxLineCommentDelimiter = ";";
-            config.mNonUniqueLabelPrefix = "@";
-            config.mCommaSeparatedDense = true;
-            config.mExpressionMode = Formatter.FormatConfig.ExpressionMode.Cc65;
+            config.OperandWrapLen = 64;
+            config.ForceDirectOpcodeSuffix = string.Empty;
+            config.ForceAbsOpcodeSuffix = string.Empty;
+            config.ForceLongOpcodeSuffix = string.Empty;
+            config.ForceDirectOperandPrefix = "z:";    // zero
+            config.ForceAbsOperandPrefix = "a:";       // absolute
+            config.ForceLongOperandPrefix = "f:";      // far
+            config.EndOfLineCommentDelimiter = ";";
+            config.FullLineCommentDelimiterBase = ";";
+            config.NonUniqueLabelPrefix = "@";
+            config.CommaSeparatedDense = true;
+            config.ExprMode = Formatter.FormatConfig.ExpressionMode.Cc65;
 
             Formatter.DelimiterSet charSet = new Formatter.DelimiterSet();
             charSet.Set(CharEncoding.Encoding.Ascii, Formatter.SINGLE_QUOTE_DELIM);
             charSet.Set(CharEncoding.Encoding.HighAscii,
                 new Formatter.DelimiterDef(string.Empty, '\'', '\'', " | $80"));
-            config.mCharDelimiters = charSet;
+            config.CharDelimiters = charSet;
         }
 
         // IGenerator
@@ -251,7 +258,7 @@ namespace SourceGen.AsmGen {
                 mOutStream = sw;
 
                 if (Settings.GetBool(AppSettings.SRCGEN_ADD_IDENT_COMMENT, false)) {
-                    OutputLine(SourceFormatter.FullLineCommentDelimiter +
+                    OutputLine(SourceFormatter.FullLineCommentDelimiterPlus +
                         string.Format(Res.Strings.GENERATED_FOR_VERSION_FMT,
                         "cc65", mAsmVersion,
                         AsmCc65.OPTIONS + " -C " + Path.GetFileName(cfgName)));
@@ -261,7 +268,7 @@ namespace SourceGen.AsmGen {
             }
             mOutStream = null;
 
-            return new GenerationResults(pathNames, string.Empty);
+            return new GenerationResults(pathNames, string.Empty, mBinaryIncludes);
         }
 
         private void GenerateLinkerScript(StreamWriter sw) {
@@ -469,6 +476,12 @@ namespace SourceGen.AsmGen {
                         OutputDenseHex(offset, length, labelStr, commentStr);
                     }
                     break;
+                case FormatDescriptor.Type.BinaryInclude:
+                    opcodeStr = sDataOpNames.BinaryInclude;
+                    string biPath = BinaryInclude.ConvertPathNameFromStorage(dfd.Extra);
+                    operandStr = '"' + biPath + '"';
+                    mBinaryIncludes.Add(new BinaryInclude.Excision(offset, length, biPath));
+                    break;
                 case FormatDescriptor.Type.StringGeneric:
                 case FormatDescriptor.Type.StringReverse:
                 case FormatDescriptor.Type.StringNullTerm:
@@ -659,7 +672,10 @@ namespace SourceGen.AsmGen {
                         StringComparison.InvariantCultureIgnoreCase)) {
                 label += ':';
 
-                if (mLongLabelNewLine && label.Length >= mColumnWidths[0]) {
+                if (!string.IsNullOrEmpty(opcode) &&
+                        (mLabelNewLine == GenCommon.LabelPlacement.PreferSeparateLine ||
+                            (mLabelNewLine == GenCommon.LabelPlacement.SplitIfTooLong &&
+                                label.Length >= mColumnWidths[0]))) {
                     mOutStream.WriteLine(label);
                     label = string.Empty;
                 }

@@ -61,6 +61,7 @@ namespace SourceGen.AsmGen {
         // IGenerator
         public LabelLocalizer Localizer { get { return mLocalizer; } }
 
+        // IGenerator
         public int StartOffset {
             get {
                 return mHasPrgHeader ? 2 : 0;
@@ -68,14 +69,19 @@ namespace SourceGen.AsmGen {
         }
 
         /// <summary>
+        /// List of binary include sections found in the project.
+        /// </summary>
+        private List<BinaryInclude.Excision> mBinaryIncludes = new List<BinaryInclude.Excision>();
+
+        /// <summary>
         /// Working directory, i.e. where we write our output file(s).
         /// </summary>
         private string mWorkDirectory;
 
         /// <summary>
-        /// If set, long labels get their own line.
+        /// Influences whether labels are put on their own line.
         /// </summary>
-        private bool mLongLabelNewLine;
+        private GenCommon.LabelPlacement mLabelNewLine;
 
         /// <summary>
         /// Output column widths.
@@ -158,6 +164,7 @@ namespace SourceGen.AsmGen {
                 { "Uninit", ".fill" },
                 //Junk
                 { "Align", ".align" },
+                { "BinaryInclude", ".binary" },
                 { "StrGeneric", ".text" },
                 //StrReverse
                 { "StrNullTerm", ".null" },
@@ -201,7 +208,8 @@ namespace SourceGen.AsmGen {
             mFileNameBase = fileNameBase;
             Settings = settings;
 
-            mLongLabelNewLine = Settings.GetBool(AppSettings.SRCGEN_LONG_LABEL_NEW_LINE, false);
+            mLabelNewLine = Settings.GetEnum(AppSettings.SRCGEN_LABEL_NEW_LINE,
+                    GenCommon.LabelPlacement.SplitIfTooLong);
 
             AssemblerConfig config = AssemblerConfig.GetConfig(settings,
                 AssemblerInfo.Id.Tass64);
@@ -245,27 +253,26 @@ namespace SourceGen.AsmGen {
         /// </summary>
         private void SetFormatConfigValues(ref Formatter.FormatConfig config) {
             // Must be lower case when --case-sensitive is used.
-            config.mUpperOpcodes = false;
-            config.mUpperPseudoOpcodes = false;
-            config.mUpperOperandA = false;
-            config.mUpperOperandS = false;
-            config.mUpperOperandXY = false;
-            config.mOperandWrapLen = 64;
+            config.UpperOpcodes = false;
+            config.UpperPseudoOpcodes = false;
+            config.UpperOperandA = false;
+            config.UpperOperandS = false;
+            config.UpperOperandXY = false;
+            config.OperandWrapLen = 64;
 
-            config.mBankSelectBackQuote = true;
+            config.BankSelectBackQuote = true;
 
-            config.mForceDirectOpcodeSuffix = string.Empty;
-            config.mForceAbsOpcodeSuffix = string.Empty;
-            config.mForceLongOpcodeSuffix = string.Empty;
-            config.mForceDirectOperandPrefix = string.Empty;
-            config.mForceAbsOperandPrefix = "@w";       // word
-            config.mForceLongOperandPrefix = "@l";      // long
-            config.mEndOfLineCommentDelimiter = ";";
-            config.mFullLineCommentDelimiterBase = ";";
-            config.mBoxLineCommentDelimiter = ";";
-            config.mNonUniqueLabelPrefix = "";      // should be '_', but that's a valid label char
-            config.mCommaSeparatedDense = true;
-            config.mExpressionMode = Formatter.FormatConfig.ExpressionMode.Common;
+            config.ForceDirectOpcodeSuffix = string.Empty;
+            config.ForceAbsOpcodeSuffix = string.Empty;
+            config.ForceLongOpcodeSuffix = string.Empty;
+            config.ForceDirectOperandPrefix = string.Empty;
+            config.ForceAbsOperandPrefix = "@w";       // word
+            config.ForceLongOperandPrefix = "@l";      // long
+            config.EndOfLineCommentDelimiter = ";";
+            config.FullLineCommentDelimiterBase = ";";
+            config.NonUniqueLabelPrefix = "";      // should be '_', but that's a valid label char
+            config.CommaSeparatedDense = true;
+            config.ExprMode = Formatter.FormatConfig.ExpressionMode.Common;
         }
 
         // IGenerator
@@ -288,7 +295,7 @@ namespace SourceGen.AsmGen {
             charDelimSet.Set(CharEncoding.Encoding.HighAscii,
                 new Formatter.DelimiterDef(string.Empty, '\'', '\'', " | $80"));
 
-            config.mCharDelimiters = charDelimSet;
+            config.CharDelimiters = charDelimSet;
 
             SourceFormatter = new Formatter(config);
 
@@ -313,7 +320,7 @@ namespace SourceGen.AsmGen {
                 mOutStream = sw;
 
                 if (Settings.GetBool(AppSettings.SRCGEN_ADD_IDENT_COMMENT, false)) {
-                    OutputLine(SourceFormatter.FullLineCommentDelimiter +
+                    OutputLine(SourceFormatter.FullLineCommentDelimiterPlus +
                         string.Format(Res.Strings.GENERATED_FOR_VERSION_FMT,
                         "64tass", mAsmVersion, AsmTass64.BASE_OPTIONS + extraOptions));
                 }
@@ -322,7 +329,7 @@ namespace SourceGen.AsmGen {
             }
             mOutStream = null;
 
-            return new GenerationResults(pathNames, extraOptions);
+            return new GenerationResults(pathNames, extraOptions, mBinaryIncludes);
         }
 
         // IGenerator
@@ -576,6 +583,12 @@ namespace SourceGen.AsmGen {
                         OutputDenseHex(offset, length, labelStr, commentStr);
                     }
                     break;
+                case FormatDescriptor.Type.BinaryInclude:
+                    opcodeStr = sDataOpNames.BinaryInclude;
+                    string biPath = BinaryInclude.ConvertPathNameFromStorage(dfd.Extra);
+                    operandStr = '"' + biPath + '"';
+                    mBinaryIncludes.Add(new BinaryInclude.Excision(offset, length, biPath));
+                    break;
                 case FormatDescriptor.Type.StringGeneric:
                 case FormatDescriptor.Type.StringReverse:
                 case FormatDescriptor.Type.StringNullTerm:
@@ -771,13 +784,15 @@ namespace SourceGen.AsmGen {
         // IGenerator
         public void OutputLine(string label, string opcode, string operand, string comment) {
             // Break the line if the label is long and it's not a .EQ/.VAR directive.
-            if (!string.IsNullOrEmpty(label) &&
+            if (!string.IsNullOrEmpty(label) && !string.IsNullOrEmpty(opcode) &&
                     !string.Equals(opcode, sDataOpNames.EquDirective,
                         StringComparison.InvariantCultureIgnoreCase) &&
                     !string.Equals(opcode, sDataOpNames.VarDirective,
                         StringComparison.InvariantCultureIgnoreCase)) {
 
-                if (mLongLabelNewLine && label.Length >= mColumnWidths[0]) {
+                if (mLabelNewLine == GenCommon.LabelPlacement.PreferSeparateLine ||
+                        (mLabelNewLine == GenCommon.LabelPlacement.SplitIfTooLong &&
+                            label.Length >= mColumnWidths[0])) {
                     mOutStream.WriteLine(label);
                     label = string.Empty;
                 }

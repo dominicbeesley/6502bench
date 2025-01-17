@@ -135,6 +135,12 @@ limitations under the License.
                                       IsChecked="{Binding ShowCycleCountsScreen}"/>
                             <CheckBox Content="Use &quot;dark&quot; color scheme" Margin="0,4"
                                       IsChecked="{Binding DarkColorScheme}"/>
+                            <DockPanel LastChildFill="True">
+                                <TextBlock Margin="0,3,0,0">Auto-save interval:</TextBlock>
+                                <ComboBox Name="autoSaveComboBox" IsReadOnly="True" Margin="8,0,0,0"
+                                          ItemsSource="{Binding AutoSaveItems}" DisplayMemberPath="Title"
+                                          SelectionChanged="AutoSaveComboBox_SelectionChanged"/>
+                            </DockPanel>
                         </StackPanel>
                     </GroupBox>
 
@@ -147,7 +153,7 @@ limitations under the License.
             <TabItem Name="textDelimitersTab" Header="Text Delimiters">
                 <DockPanel LastChildFill="False">
                     <TextBlock DockPanel.Dock="Top" Margin="4,0,0,0"
-                               Text="Select pseudo-op names for display. This does not affect source code generation. Blank entries get a default value."/>
+                               Text="Configure character and string constant delimiters. This does not affect source code generation."/>
 
                     <Grid DockPanel.Dock="Top" Height="240" Margin="4,0">
 
@@ -501,6 +507,14 @@ limitations under the License.
                         </StackPanel>
 
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,8,0,0">
+                            <TextBlock Text="Full-line comment delimiter:"/>
+                            <TextBox Width="14" MaxLength="1" Margin="8,1,0,0"
+                                     Text="{Binding FullLineCommentDelim, UpdateSourceTrigger=PropertyChanged,
+                                        FallbackValue=;}"
+                                     FontFamily="{StaticResource GeneralMonoFont}"/>
+                        </StackPanel>
+
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,0,0">
                             <TextBlock Text="Non-unique label prefix:"/>
                             <TextBox Width="14" MaxLength="1" Margin="8,1,0,0"
                                      Text="{Binding NonUniqueLabelPrefix, UpdateSourceTrigger=PropertyChanged,
@@ -653,6 +667,12 @@ limitations under the License.
                                  VerticalAlignment="Center" Margin="{StaticResource TBS}"
                                  Text=".placeho" MaxLength="12"
                                  FontFamily="{StaticResource GeneralMonoFont}"/>
+                        <TextBlock Grid.Column="4" Grid.Row="3" Text="Binary include:"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        <TextBox Name="binaryIncludeTextBox" Grid.Column="5" Grid.Row="3"
+                                 VerticalAlignment="Center" Margin="{StaticResource TBS}"
+                                 Text=".placeho" MaxLength="12"
+                                 FontFamily="{StaticResource GeneralMonoFont}"/>
                         <TextBlock Grid.Column="6" Grid.Row="3" Text="Bulk data:"
                                    HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         <TextBox Name="denseTextBox" Grid.Column="7" Grid.Row="3"
@@ -745,7 +765,7 @@ limitations under the License.
 
             <TabItem Name="asmConfigTab" Header="Asm Config">
                 <StackPanel>
-                    <GroupBox Header="Assembler Configuration" Padding="2,4">
+                    <GroupBox Header="Assembler-Specific Configuration" Padding="2,4">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -757,12 +777,14 @@ limitations under the License.
                                 <RowDefinition/>
                             </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Column="0" Grid.Row="0" Text="Assembler:"
-                                       HorizontalAlignment="Right" Margin="0,5,4,0"/>
-                            <ComboBox Name="asmConfigComboBox" Grid.Column="1" Grid.Row="0" IsReadOnly="True"
-                                      Width="150" HorizontalAlignment="Left" Margin="0,4,0,20"
-                                      ItemsSource="{Binding AssemblerList}" DisplayMemberPath="Name"
-                                      SelectionChanged="AsmConfigComboBox_SelectionChanged"/>
+                            <StackPanel Orientation="Horizontal" Grid.Column="0" Grid.Row="0" Grid.ColumnSpan="2">
+                                <TextBlock Text="Select assembler to configure:"
+                                           HorizontalAlignment="Right" Margin="0,7,4,0"/>
+                                <ComboBox Name="asmConfigComboBox" Grid.Column="1" Grid.Row="0" IsReadOnly="True"
+                                          Width="150" HorizontalAlignment="Left" Margin="0,4,0,20"
+                                          ItemsSource="{Binding AssemblerList}" DisplayMemberPath="Name"
+                                          SelectionChanged="AsmConfigComboBox_SelectionChanged"/>
+                            </StackPanel>
 
                             <TextBlock Grid.Column="0" Grid.Row="1" Text="Executable:"
                                        HorizontalAlignment="Right" Margin="0,0,4,0"/>
@@ -817,13 +839,28 @@ limitations under the License.
                         </Grid>
                     </GroupBox>
 
-                    <TextBlock Text="General code generation:" Margin="4,16,0,0"/>
-                    <CheckBox Content="Show cycle counts in comments" Margin="4,8,0,0"
-                              IsChecked="{Binding ShowCycleCountsAsm}"/>
-                    <CheckBox Content="Put long labels on separate line" Margin="4,8,0,0"
-                              IsChecked="{Binding LongLabelNewLine}"/>
-                    <CheckBox Content="Identify assembler in output" Margin="4,8,0,0"
-                              IsChecked="{Binding AddIdentComment}"/>
+                    <GroupBox Header="Code Generation Settings" Padding="2,4" Margin="0,8,0,0">
+                        <StackPanel>
+                            <CheckBox Content="Show cycle counts in comments"
+                                      IsChecked="{Binding ShowCycleCountsAsm}"/>
+                            <CheckBox Content="Identify assembler in output" Margin="0,4,0,0"
+                                      IsChecked="{Binding AddIdentComment}"/>
+                            <CheckBox Content="Omit implied accumulator operands if allowed" Margin="0,4,0,0"
+                                      IsChecked="{Binding OmitImpliedAccOperand}"/>
+                            <StackPanel Orientation="Vertical" Margin="0,6,0,0">
+                                <TextBlock Text="Put labels on their own line..."/>
+                                <RadioButton GroupName="labelLineGroup" Margin="4,4,0,0"
+                                             Content="Only when required"
+                                             IsChecked="{Binding LabelPlacement_PreferSameLine}"/>
+                                <RadioButton GroupName="labelLineGroup" Margin="4,4,0,0"
+                                             Content="When the label is wider than the field"
+                                             IsChecked="{Binding LabelPlacement_SplitIfTooLong}"/>
+                                <RadioButton GroupName="labelLineGroup" Margin="4,4,0,0"
+                                             Content="Whenever possible"
+                                             IsChecked="{Binding LabelPlacement_PreferSeparateLine}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
             </TabItem>
 

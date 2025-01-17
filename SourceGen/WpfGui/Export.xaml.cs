@@ -20,9 +20,9 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 
 using CommonUtil;
-using Microsoft.Win32;
 
 namespace SourceGen.WpfGui {
     /// <summary>
@@ -236,8 +236,8 @@ namespace SourceGen.WpfGui {
                 AsmCommentColWidth = colWidths[3];
             }
 
-            TextMode mode = (TextMode)AppSettings.Global.GetEnum(AppSettings.EXPORT_TEXT_MODE,
-                typeof(TextMode), (int)TextMode.PlainText);
+            TextMode mode = AppSettings.Global.GetEnum(AppSettings.EXPORT_TEXT_MODE,
+                TextMode.PlainText);
             if (mode == TextMode.PlainText) {
                 TextModePlain = true;
             } else {
@@ -274,7 +274,7 @@ namespace SourceGen.WpfGui {
             } else {
                 mode = TextMode.Csv;
             }
-            AppSettings.Global.SetEnum(AppSettings.EXPORT_TEXT_MODE, typeof(TextMode), (int)mode);
+            AppSettings.Global.SetEnum(AppSettings.EXPORT_TEXT_MODE, mode);
         }
 
         /// <summary>
